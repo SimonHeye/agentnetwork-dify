@@ -1,0 +1,19 @@
+# Local Dify source and deployment
+/dify/
+
+# Private local configuration and generated backups
+/Pipeline/dify_import_config.json
+/workflow_graphs/backups/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Codex and document-review scratch files
+/.agents/
+/.docx_render/
+/.docx_review/
+/.docx_review_forward/

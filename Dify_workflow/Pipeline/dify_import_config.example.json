@@ -1,0 +1,8 @@
+{
+  "base_url": "http://localhost",
+  "app_id": "replace-with-your-dify-app-id",
+  "graph": "workflow_graphs/sample_graph.json",
+  "backup_dir": "workflow_graphs/backups",
+  "access_token": "",
+  "auto_confirm": false
+}

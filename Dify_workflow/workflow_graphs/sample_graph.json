@@ -1,0 +1,445 @@
+{
+  "nodes": [
+    {
+      "id": "start",
+      "type": "custom",
+      "position": {
+        "x": 80.0,
+        "y": 280.0
+      },
+      "data": {
+        "type": "start",
+        "title": "Start",
+        "desc": "",
+        "selected": false,
+        "variables": [
+          {
+            "variable": "task",
+            "label": "task",
+            "type": "text-input",
+            "required": true,
+            "max_length": null,
+            "options": []
+          }
+        ]
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 80.0,
+        "y": 280.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "reasoninggroup",
+      "type": "custom",
+      "position": {
+        "x": 400.0,
+        "y": 280.0
+      },
+      "data": {
+        "type": "llm",
+        "title": "ReasoningGroup",
+        "desc": "",
+        "selected": false,
+        "model": {
+          "provider": "langgenius/deepseek/deepseek",
+          "name": "deepseek-chat",
+          "mode": "chat",
+          "completion_params": {}
+        },
+        "prompt_template": [
+          {
+            "role": "user",
+            "text": "判断下面的用户需求属于「事实查询」还是「数值计算」，只返回 JSON：{\"kind\": \"search\"} 或 {\"kind\": \"calc\"}。\n需求：{{#start.task#}}"
+          }
+        ],
+        "context": {
+          "enabled": false,
+          "variable_selector": []
+        },
+        "vision": {
+          "enabled": false,
+          "configs": {
+            "variable_selector": []
+          }
+        },
+        "memory": {
+          "enabled": false,
+          "window": {
+            "enabled": false,
+            "size": 50
+          }
+        },
+        "retry_config": {
+          "enabled": false,
+          "max_retries": 1,
+          "retry_interval": 1000,
+          "exponential_backoff": {
+            "enabled": false,
+            "multiplier": 2,
+            "max_interval": 10000
+          }
+        },
+        "structured_output_enabled": true,
+        "structured_output": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 400.0,
+        "y": 280.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "branch_1",
+      "type": "custom",
+      "position": {
+        "x": 720.0,
+        "y": 280.0
+      },
+      "data": {
+        "type": "if-else",
+        "title": "IF/ELSE",
+        "desc": "",
+        "selected": false,
+        "cases": [
+          {
+            "case_id": "case_1",
+            "logical_operator": "and",
+            "conditions": [
+              {
+                "id": "branch_1_case_1_0",
+                "varType": "string",
+                "variable_selector": [
+                  "reasoninggroup",
+                  "structured_output",
+                  "kind"
+                ],
+                "comparison_operator": "is",
+                "value": "calc"
+              }
+            ]
+          }
+        ]
+      },
+      "width": 244,
+      "height": 126,
+      "positionAbsolute": {
+        "x": 720.0,
+        "y": 280.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "calculatorgroup",
+      "type": "custom",
+      "position": {
+        "x": 1040.0,
+        "y": 190.0
+      },
+      "data": {
+        "type": "llm",
+        "title": "CalculatorGroup",
+        "desc": "",
+        "selected": false,
+        "model": {
+          "provider": "langgenius/deepseek/deepseek",
+          "name": "deepseek-chat",
+          "mode": "chat",
+          "completion_params": {}
+        },
+        "prompt_template": [
+          {
+            "role": "user",
+            "text": "{{#start.task#}}"
+          }
+        ],
+        "context": {
+          "enabled": false,
+          "variable_selector": []
+        },
+        "vision": {
+          "enabled": false,
+          "configs": {
+            "variable_selector": []
+          }
+        },
+        "memory": {
+          "enabled": false,
+          "window": {
+            "enabled": false,
+            "size": 50
+          }
+        },
+        "retry_config": {
+          "enabled": false,
+          "max_retries": 1,
+          "retry_interval": 1000,
+          "exponential_backoff": {
+            "enabled": false,
+            "multiplier": 2,
+            "max_interval": 10000
+          }
+        },
+        "structured_output_enabled": false
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 1040.0,
+        "y": 190.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "searchgroup",
+      "type": "custom",
+      "position": {
+        "x": 1040.0,
+        "y": 370.0
+      },
+      "data": {
+        "type": "llm",
+        "title": "SearchGroup",
+        "desc": "",
+        "selected": false,
+        "model": {
+          "provider": "langgenius/deepseek/deepseek",
+          "name": "deepseek-chat",
+          "mode": "chat",
+          "completion_params": {}
+        },
+        "prompt_template": [
+          {
+            "role": "user",
+            "text": "{{#start.task#}}"
+          }
+        ],
+        "context": {
+          "enabled": false,
+          "variable_selector": []
+        },
+        "vision": {
+          "enabled": false,
+          "configs": {
+            "variable_selector": []
+          }
+        },
+        "memory": {
+          "enabled": false,
+          "window": {
+            "enabled": false,
+            "size": 50
+          }
+        },
+        "retry_config": {
+          "enabled": false,
+          "max_retries": 1,
+          "retry_interval": 1000,
+          "exponential_backoff": {
+            "enabled": false,
+            "multiplier": 2,
+            "max_interval": 10000
+          }
+        },
+        "structured_output_enabled": false
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 1040.0,
+        "y": 370.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "terminal_1_calculatorgroup",
+      "type": "custom",
+      "position": {
+        "x": 1360.0,
+        "y": 190.0
+      },
+      "data": {
+        "type": "end",
+        "title": "End",
+        "desc": "",
+        "selected": false,
+        "outputs": [
+          {
+            "variable": "final_result",
+            "value_selector": [
+              "calculatorgroup",
+              "text"
+            ],
+            "value_type": "string"
+          }
+        ]
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 1360.0,
+        "y": 190.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    },
+    {
+      "id": "terminal_1_searchgroup",
+      "type": "custom",
+      "position": {
+        "x": 1360.0,
+        "y": 370.0
+      },
+      "data": {
+        "type": "end",
+        "title": "End",
+        "desc": "",
+        "selected": false,
+        "outputs": [
+          {
+            "variable": "final_result",
+            "value_selector": [
+              "searchgroup",
+              "text"
+            ],
+            "value_type": "string"
+          }
+        ]
+      },
+      "width": 244,
+      "height": 90,
+      "positionAbsolute": {
+        "x": 1360.0,
+        "y": 370.0
+      },
+      "sourcePosition": "right",
+      "targetPosition": "left",
+      "selected": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-source-reasoninggroup-target",
+      "source": "start",
+      "target": "reasoninggroup",
+      "type": "custom",
+      "sourceHandle": "source",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "start",
+        "targetType": "llm",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    },
+    {
+      "id": "reasoninggroup-source-branch_1-target",
+      "source": "reasoninggroup",
+      "target": "branch_1",
+      "type": "custom",
+      "sourceHandle": "source",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "llm",
+        "targetType": "if-else",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    },
+    {
+      "id": "branch_1-case_1-calculatorgroup-target",
+      "source": "branch_1",
+      "target": "calculatorgroup",
+      "type": "custom",
+      "sourceHandle": "case_1",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "if-else",
+        "targetType": "llm",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    },
+    {
+      "id": "branch_1-false-searchgroup-target",
+      "source": "branch_1",
+      "target": "searchgroup",
+      "type": "custom",
+      "sourceHandle": "false",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "if-else",
+        "targetType": "llm",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    },
+    {
+      "id": "calculatorgroup-source-terminal_1_calculatorgroup-target",
+      "source": "calculatorgroup",
+      "target": "terminal_1_calculatorgroup",
+      "type": "custom",
+      "sourceHandle": "source",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "llm",
+        "targetType": "end",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    },
+    {
+      "id": "searchgroup-source-terminal_1_searchgroup-target",
+      "source": "searchgroup",
+      "target": "terminal_1_searchgroup",
+      "type": "custom",
+      "sourceHandle": "source",
+      "targetHandle": "target",
+      "data": {
+        "sourceType": "llm",
+        "targetType": "end",
+        "isInIteration": false,
+        "isInLoop": false
+      },
+      "zIndex": 0
+    }
+  ],
+  "viewport": {
+    "x": 0.0,
+    "y": 0.0,
+    "zoom": 0.7
+  }
+}
