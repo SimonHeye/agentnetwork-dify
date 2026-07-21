@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "groups": {
+    "ReasoningGroup": {
+      "dify_type": "llm",
+      "aliases": ["推理", "推理决策", "任务判断"],
+      "input_params": ["task"],
+      "default_assignment": "reasoning_result"
+    },
+    "SearchGroup": {
+      "dify_type": "llm",
+      "aliases": ["搜索", "信息搜索", "事实查询"],
+      "input_params": ["task"],
+      "default_assignment": "search_result"
+    },
+    "CalculatorGroup": {
+      "dify_type": "llm",
+      "aliases": ["计算", "数值计算"],
+      "input_params": ["task"],
+      "default_assignment": "calculation_result"
+    },
+    "ClassificationGroup": {
+      "dify_type": "llm",
+      "aliases": ["分类", "任务分类"],
+      "input_params": ["task"],
+      "default_assignment": "classification_result"
+    },
+    "PlanningGroup": {
+      "dify_type": "llm",
+      "aliases": ["规划", "任务规划"],
+      "input_params": ["task"],
+      "default_assignment": "plan"
+    },
+    "ExtractionGroup": {
+      "dify_type": "llm",
+      "aliases": ["抽取", "信息抽取"],
+      "input_params": ["task"],
+      "default_assignment": "extracted_result"
+    },
+    "SummarizationGroup": {
+      "dify_type": "llm",
+      "aliases": ["总结", "摘要"],
+      "input_params": ["task"],
+      "default_assignment": "summary"
+    }
+  }
+}

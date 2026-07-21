@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "dify_version": "1.15.0",
+  "source": {
+    "path": "T1_parser/sample.py",
+    "sha256": "82b196b986d43c044a4407ce6106a2586a4538148ee4518f034f4281c1dd4f6c"
+  },
+  "flow_semantics": {
+    "version": 1,
+    "body": [
+      "reasoninggroup",
+      "branch_1",
+      "binding_1",
+      "terminal_1"
+    ],
+    "inputs": [
+      {
+        "name": "task",
+        "type": "paragraph"
+      }
+    ],
+    "steps": [
+      {
+        "id": "reasoninggroup",
+        "kind": "call",
+        "function": "ReasoningGroup",
+        "assign_to": "probe",
+        "args": [],
+        "kwargs": {
+          "task": {
+            "expr": "template",
+            "parts": [
+              {
+                "text": "判断下面的用户需求属于「事实查询」还是「数值计算」，只返回 JSON：{\"kind\": \"search\"} 或 {\"kind\": \"calc\"}。\n需求："
+              },
+              {
+                "var": "task"
+              }
+            ],
+            "raw": "f\"判断下面的用户需求属于「事实查询」还是「数值计算」，\"\n         f\"只返回 JSON：{{\\\"kind\\\": \\\"search\\\"}} 或 {{\\\"kind\\\": \\\"calc\\\"}}。\\n需求：{task}\"",
+            "refs": [
+              "task"
+            ]
+          }
+        },
+        "lineno": 6
+      },
+      {
+        "id": "branch_1",
+        "kind": "branch",
+        "cases": [
+          {
+            "case_id": "case_1",
+            "condition": {
+              "parsed": true,
+              "logical": "and",
+              "comparisons": [
+                {
+                  "var": "probe",
+                  "key": "kind",
+                  "op": "==",
+                  "value": {
+                    "expr": "const",
+                    "value": "calc",
+                    "value_type": "str",
+                    "raw": "\"calc\"",
+                    "refs": []
+                  },
+                  "raw": "probe.get(\"kind\") == \"calc\""
+                }
+              ],
+              "raw": "probe.get(\"kind\") == \"calc\"",
+              "refs": [
+                "probe"
+              ]
+            },
+            "body": [
+              "calculatorgroup"
+            ]
+          }
+        ],
+        "else_case": {
+          "case_id": "else",
+          "body": [
+            "searchgroup"
+          ]
+        },
+        "lineno": 12
+      },
+      {
+        "id": "calculatorgroup",
+        "kind": "call",
+        "function": "CalculatorGroup",
+        "assign_to": "answer",
+        "args": [],
+        "kwargs": {
+          "task": {
+            "expr": "var",
+            "name": "task",
+            "raw": "task",
+            "refs": [
+              "task"
+            ]
+          }
+        },
+        "lineno": 13
+      },
+      {
+        "id": "searchgroup",
+        "kind": "call",
+        "function": "SearchGroup",
+        "assign_to": "answer",
+        "args": [],
+        "kwargs": {
+          "task": {
+            "expr": "var",
+            "name": "task",
+            "raw": "task",
+            "refs": [
+              "task"
+            ]
+          }
+        },
+        "lineno": 15
+      }
+    ],
+    "bindings": [
+      {
+        "id": "binding_1",
+        "target": "final_result",
+        "value": {
+          "expr": "var",
+          "name": "answer",
+          "raw": "answer",
+          "refs": [
+            "answer"
+          ]
+        },
+        "sources": {
+          "answer": [
+            "calculatorgroup",
+            "searchgroup"
+          ]
+        },
+        "lineno": 18
+      }
+    ],
+    "terminals": [
+      {
+        "id": "terminal_1",
+        "via": "last_assign",
+        "assigned_name": "final_result",
+        "output": {
+          "expr": "var",
+          "name": "answer",
+          "raw": "answer",
+          "refs": [
+            "answer"
+          ]
+        },
+        "output_step": null,
+        "lineno": 18
+      }
+    ],
+    "variables": {
+      "probe": [
+        "reasoninggroup"
+      ],
+      "answer": [
+        "calculatorgroup",
+        "searchgroup"
+      ],
+      "final_result": [
+        "calculatorgroup",
+        "searchgroup"
+      ]
+    },
+    "warnings": []
+  },
+  "graph_nodes": {
+    "start": {
+      "kind": "start",
+      "input_names": [
+        "task"
+      ]
+    },
+    "reasoninggroup": {
+      "kind": "call",
+      "semantic_id": "reasoninggroup",
+      "lineno": 6,
+      "function": "ReasoningGroup",
+      "assign_to": "probe",
+      "structured_fields": {
+        "kind": "string"
+      }
+    },
+    "branch_1": {
+      "kind": "branch",
+      "semantic_id": "branch_1",
+      "lineno": 12,
+      "case_handles": {
+        "case_1": "case_1"
+      },
+      "else_handle": "false"
+    },
+    "calculatorgroup": {
+      "kind": "call",
+      "semantic_id": "calculatorgroup",
+      "lineno": 13,
+      "function": "CalculatorGroup",
+      "assign_to": "answer",
+      "structured_fields": {}
+    },
+    "searchgroup": {
+      "kind": "call",
+      "semantic_id": "searchgroup",
+      "lineno": 15,
+      "function": "SearchGroup",
+      "assign_to": "answer",
+      "structured_fields": {}
+    },
+    "terminal_1_calculatorgroup": {
+      "kind": "terminal",
+      "semantic_id": "terminal_1",
+      "producer_id": "calculatorgroup"
+    },
+    "terminal_1_searchgroup": {
+      "kind": "terminal",
+      "semantic_id": "terminal_1",
+      "producer_id": "searchgroup"
+    }
+  },
+  "graph_sha256": "6ff542c5117e916525c1855f538ca68f811218c03555f994386c4941e16541a8",
+  "registry": {
+    "version": 1,
+    "sha256": "4bdec47162b3b13480f9be53de9f37e9f3c769c73926b411a0c0854358e507d2"
+  }
+}
