@@ -58,6 +58,7 @@
     "@floating-ui/react": "catalog:",
     "@formatjs/intl-localematcher": "catalog:",
     "@heroicons/react": "catalog:",
+    "@lezer/python": "catalog:",
     "@lexical/code": "catalog:",
     "@lexical/link": "catalog:",
     "@lexical/list": "catalog:",

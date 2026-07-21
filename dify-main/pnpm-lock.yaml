@@ -75,6 +75,9 @@ catalogs:
     '@lexical/utils':
       specifier: 0.45.0
       version: 0.45.0
+    '@lezer/python':
+      specifier: 1.1.19
+      version: 1.1.19
     '@mdx-js/loader':
       specifier: 3.1.1
       version: 3.1.1
@@ -1108,6 +1111,9 @@ importers:
       '@lexical/utils':
         specifier: 'catalog:'
         version: 0.45.0
+      '@lezer/python':
+        specifier: 'catalog:'
+        version: 1.1.19
       '@monaco-editor/react':
         specifier: 'catalog:'
         version: 4.7.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -2836,6 +2842,18 @@ packages:
     resolution: {integrity: sha512-HYbOovvOavtF1S7C13l9g21s4MFLLd/o49qdn+/uGj23j4yjG556XBSrF0c3BREXDXSUr+RTbI6uiQ+L5Ofcmw==}
     peerDependencies:
       yjs: '>=13.5.22'
+
+  '@lezer/common@1.5.2':
+    resolution: {integrity: sha512-sxQE460fPZyU3sdc8lafxiPwJHBzZRy/udNFynGQky1SePYBdhkBl1kOagA9uT3pxR8K09bOrmTUqA9wb/PjSQ==}
+
+  '@lezer/highlight@1.2.3':
+    resolution: {integrity: sha512-qXdH7UqTvGfdVBINrgKhDsVTJTxactNNxLk7+UMwZhU13lMHaOBlJe9Vqp907ya56Y3+ed2tlqzys7jDkTmW0g==}
+
+  '@lezer/lr@1.4.10':
+    resolution: {integrity: sha512-rnCpTIBafOx4mRp43xOxDJbFipJm/c0cia/V5TiGlhmMa+wsSdoGmUN3w5Bqrks/09Q/D4tNAmWaT8p6NRi77A==}
+
+  '@lezer/python@1.1.19':
+    resolution: {integrity: sha512-MhQIURHRytsNzP/YXnqpYKW6la6voAH3kyplTOOiCdjyFY6cWWGFVmYVdHIPrElqSDf4iCDktQCockB9FxuhzQ==}
 
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
@@ -11446,6 +11464,22 @@ snapshots:
       '@lexical/selection': 0.45.0
       lexical: 0.45.0
 
+  '@lezer/common@1.5.2': {}
+
+  '@lezer/highlight@1.2.3':
+    dependencies:
+      '@lezer/common': 1.5.2
+
+  '@lezer/lr@1.4.10':
+    dependencies:
+      '@lezer/common': 1.5.2
+
+  '@lezer/python@1.1.19':
+    dependencies:
+      '@lezer/common': 1.5.2
+      '@lezer/highlight': 1.2.3
+      '@lezer/lr': 1.4.10
+
   '@lukeed/ms@2.0.2': {}
 
   '@mdx-js/loader@3.1.1':
@@ -13163,7 +13197,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/scope-manager': 8.61.0
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       '@typescript-eslint/visitor-keys': 8.61.0
       debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)(supports-color@10.2.2)
@@ -13175,7 +13209,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/scope-manager': 8.61.0
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       '@typescript-eslint/visitor-keys': 8.61.0
       debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)
@@ -13195,7 +13229,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/project-service@8.61.0(typescript@6.0.3)':
+  '@typescript-eslint/project-service@8.61.0(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.61.0(typescript@6.0.3)
       '@typescript-eslint/types': 8.61.0
@@ -13234,7 +13268,7 @@ snapshots:
   '@typescript-eslint/type-utils@8.61.0(eslint@10.5.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       '@typescript-eslint/utils': 8.61.0(eslint@10.5.0(jiti@2.7.0)(supports-color@10.2.2))(typescript@6.0.3)
       debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)(supports-color@10.2.2)
@@ -13246,7 +13280,7 @@ snapshots:
   '@typescript-eslint/type-utils@8.61.0(eslint@10.5.0(jiti@2.7.0))(typescript@6.0.3)':
     dependencies:
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       '@typescript-eslint/utils': 8.61.0(eslint@10.5.0(jiti@2.7.0))(typescript@6.0.3)
       debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)
@@ -13284,9 +13318,9 @@ snapshots:
 
   '@typescript-eslint/types@8.61.1': {}
 
-  '@typescript-eslint/typescript-estree@8.61.0(typescript@6.0.3)':
+  '@typescript-eslint/typescript-estree@8.61.0(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
-      '@typescript-eslint/project-service': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/project-service': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       '@typescript-eslint/tsconfig-utils': 8.61.0(typescript@6.0.3)
       '@typescript-eslint/types': 8.61.0
       '@typescript-eslint/visitor-keys': 8.61.0
@@ -13319,7 +13353,7 @@ snapshots:
       '@eslint-community/eslint-utils': 4.9.1(eslint@10.5.0(jiti@2.7.0)(supports-color@10.2.2))
       '@typescript-eslint/scope-manager': 8.61.0
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       eslint: 10.5.0(jiti@2.7.0)(supports-color@10.2.2)
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -13330,7 +13364,7 @@ snapshots:
       '@eslint-community/eslint-utils': 4.9.1(eslint@10.5.0(jiti@2.7.0))
       '@typescript-eslint/scope-manager': 8.61.0
       '@typescript-eslint/types': 8.61.0
-      '@typescript-eslint/typescript-estree': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/typescript-estree': 8.61.0(supports-color@10.2.2)(typescript@6.0.3)
       eslint: 10.5.0(jiti@2.7.0)
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -19428,6 +19462,7 @@ time:
   '@lexical/selection@0.45.0': '2026-05-28T20:34:54.856Z'
   '@lexical/text@0.45.0': '2026-05-28T20:35:02.494Z'
   '@lexical/utils@0.45.0': '2026-05-28T20:35:04.700Z'
+  '@lezer/python@1.1.19': '2026-05-28T05:39:55.718Z'
   '@mdx-js/loader@3.1.1': '2025-08-29T18:03:05.606Z'
   '@mdx-js/react@3.1.1': '2025-08-29T18:02:56.462Z'
   '@mdx-js/rollup@3.1.1': '2025-08-29T18:03:10.680Z'

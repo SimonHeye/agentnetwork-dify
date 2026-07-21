@@ -55,6 +55,7 @@ import ReactFlow, {
 } from 'reactflow'
 import { IS_DEV } from '@/config'
 import { useEventEmitterContextContext } from '@/context/event-emitter'
+import { AgentNetworkWorkflowBridge } from '@/features/agent-network-workflow/bridge'
 import {
   useAllBuiltInTools,
   useAllCustomTools,
@@ -624,6 +625,7 @@ export const Workflow: FC<WorkflowProps> = memo(({
       )}
       ref={workflowContainerRef}
     >
+      <AgentNetworkWorkflowBridge />
       <SyncingDataModal />
       <CandidateNode />
       <CommentManager />
