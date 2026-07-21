@@ -1,3 +1,6 @@
 # Ignore actual .env files (keep only .env.example files in git)
 *.env
 !*.env.example
+
+# Local Docker runtime data (databases, uploads, plugins, and vector stores).
+volumes/
