@@ -3,6 +3,7 @@ import type { LLMNodeType } from '@/app/components/workflow/nodes/llm/types'
 import type { Edge, Node } from '@/app/components/workflow/types'
 import { act, renderHook } from '@testing-library/react'
 import { BlockEnum } from '@/app/components/workflow/types'
+import { compileAgentNetworkPseudocode } from '../compiler'
 import { AgentNetworkCompileError } from '../types'
 import { useAgentNetworkWorkflow } from '../use-agent-network-workflow'
 
@@ -178,6 +179,29 @@ describe('useAgentNetworkWorkflow', () => {
       )).rejects.toThrow(/was not applied to the canvas/)
 
       expect(mockDoSyncWorkflowDraft).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Graph export', () => {
+    it('exports the current canvas graph, viewport, and LLM skills', () => {
+      const graph = compileAgentNetworkPseudocode(
+        'answer = EchoGroup(task=task)\nfinal_result = answer',
+        { model: difyNodeDefaults.llm.model },
+      ).graph
+      mockCanvasState.nodes = graph.nodes.map(node => node.id === 'echogroup'
+        ? { ...node, data: { ...node.data, skills: ['browser-control'] } }
+        : node)
+      mockCanvasState.edges = graph.edges
+      const { result } = renderHook(() => useAgentNetworkWorkflow())
+
+      const exported = result.current.exportPseudocode()
+
+      expect(mockGetNodes).toHaveBeenCalled()
+      expect(mockGetEdges).toHaveBeenCalled()
+      expect(mockGetViewport).toHaveBeenCalled()
+      expect(exported.source).toContain('answer = EchoGroup(')
+      expect(exported.source).toContain('skills=["browser-control"],')
+      expect(exported.source).toContain('final_result = answer')
     })
   })
 

@@ -1,4 +1,10 @@
-import type { AgentNetworkCompileOptions, AgentNetworkCompileResult, AgentNetworkModelConfig } from './types'
+import type {
+  AgentNetworkCompileOptions,
+  AgentNetworkCompileResult,
+  AgentNetworkModelConfig,
+  AgentNetworkReverseOptions,
+  AgentNetworkReverseResult,
+} from './types'
 import type { Edge, Node } from '@/app/components/workflow/types'
 import { useReactFlow } from 'reactflow'
 import { collaborationManager } from '@/app/components/workflow/collaboration/core/collaboration-manager'
@@ -9,6 +15,7 @@ import { BlockEnum } from '@/app/components/workflow/types'
 import {
   compileAgentNetworkPseudocode,
 } from './compiler'
+import { compileDifyGraphToAgentNetworkPseudocode } from './reverse-compiler'
 import { AgentNetworkCompileError } from './types'
 
 export type ApplyAgentNetworkPseudocodeOptions = AgentNetworkCompileOptions & {
@@ -63,7 +70,17 @@ export function useAgentNetworkWorkflow() {
     return { ...result, graph }
   }
 
-  return { applyPseudocode }
+  const exportPseudocode = (
+    options: AgentNetworkReverseOptions = {},
+  ): AgentNetworkReverseResult => {
+    return compileDifyGraphToAgentNetworkPseudocode({
+      nodes: reactFlow.getNodes(),
+      edges: reactFlow.getEdges(),
+      viewport: reactFlow.getViewport(),
+    }, options)
+  }
+
+  return { applyPseudocode, exportPseudocode }
 }
 
 function preserveCanvasState(

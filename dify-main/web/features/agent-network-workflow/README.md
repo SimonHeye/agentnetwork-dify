@@ -1,6 +1,9 @@
 # Agent Network Workflow
 
-Compiles AgentNetwork Python-like pseudocode directly in the browser and applies the generated graph to Dify's workflow canvas.
+Provides both directions of the Dify and Agent Network workflow integration:
+
+- Agent Network pseudocode to a Dify workflow canvas.
+- The current Dify canvas to canonical pseudocode, followed by server-side HTTP delivery to Agent Network.
 
 ## Entry Points
 
@@ -21,7 +24,40 @@ await window.difyAgentNetworkWorkflow.applyPseudocode(source, {
 })
 ```
 
-The bridge renders no UI. It only exposes the existing hook while the workflow editor is mounted.
+The bridge renders no UI. It exposes only the inbound `applyPseudocode` method while the workflow editor is mounted. Reverse-generated pseudocode is not exposed on `window`.
+
+## Reverse Delivery
+
+The workflow header opens a read-only preview containing generated pseudocode and compiler diagnostics. It intentionally has no clipboard or download action.
+
+The separate Save action is the delivery boundary. It performs these operations in order:
+
+1. Force-save the current Dify workflow draft.
+1. Reverse-compile the latest canvas graph, including LLM `data.skills`, to pseudocode.
+1. Post the pseudocode to the internal transport only after the draft save succeeds.
+
+Opening the preview never sends data. If reverse compilation reports an error, the diagnostics window opens and no HTTP request is made.
+
+Delivery uses two hops:
+
+1. The browser posts the latest saved pseudocode to `/internal/agent-network/pseudocode` on the same Dify origin.
+1. The Next.js server route validates the payload and forwards a versioned event to the configured Agent Network receiver.
+
+The receiver URL and token are server-only environment variables:
+
+```text
+AGENT_NETWORK_PSEUDOCODE_URL=http://127.0.0.1:8787/pseudocode
+AGENT_NETWORK_PSEUDOCODE_API_KEY=local-test-token
+AGENT_NETWORK_PSEUDOCODE_TIMEOUT_MS=10000
+```
+
+The outbound body is JSON with `schema_version`, `event`, `delivery_id`, `sent_at`, `app`, `pseudocode`, `diagnostics`, and `stats`. The current contract version is `1.0`, and the event name is `dify.workflow.pseudocode.generated`.
+
+For a local verification receiver, run:
+
+```powershell
+node web/scripts/mock-agent-network-pseudocode-receiver.mjs
+```
 
 All generated Group nodes share one model unless `model` or a group override is supplied. The browser entry uses the current Dify LLM default when available and otherwise falls back to:
 
@@ -39,6 +75,8 @@ const DEFAULT_MODEL = {
 - `compiler`
 - `compiler-helpers`
 - `bridge`
+- `reverse-compiler`
+- `send-pseudocode`
 - `python-syntax`
 - `types`
 - `use-agent-network-workflow`

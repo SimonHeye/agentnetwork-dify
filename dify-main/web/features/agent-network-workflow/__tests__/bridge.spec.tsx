@@ -12,7 +12,9 @@ type AgentNetworkTestWindow = Window & typeof globalThis & {
 const browserWindow = window as AgentNetworkTestWindow
 
 vi.mock('../use-agent-network-workflow', () => ({
-  useAgentNetworkWorkflow: () => ({ applyPseudocode: mockApplyPseudocode }),
+  useAgentNetworkWorkflow: () => ({
+    applyPseudocode: mockApplyPseudocode,
+  }),
 }))
 
 describe('AgentNetworkWorkflowBridge', () => {
@@ -45,7 +47,9 @@ describe('AgentNetworkWorkflowBridge', () => {
 
   it('removes only the API instance that it registered', () => {
     const { unmount } = render(<AgentNetworkWorkflowBridge />)
-    const replacementApi = { applyPseudocode: mockApplyPseudocode }
+    const replacementApi = {
+      applyPseudocode: mockApplyPseudocode,
+    }
     browserWindow.difyAgentNetworkWorkflow = replacementApi
 
     unmount()

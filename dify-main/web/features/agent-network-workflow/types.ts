@@ -26,6 +26,44 @@ export type AgentNetworkCompileResult = {
   warnings: string[]
 }
 
+export type AgentNetworkReverseDiagnostic = {
+  severity: 'warning' | 'error'
+  code: string
+  message: string
+  nodeId?: string
+}
+
+export type AgentNetworkReverseStats = {
+  nodes: number
+  edges: number
+  agents: number
+  branches: number
+  skills: number
+}
+
+export type AgentNetworkReverseOptions = {
+  workflowName?: string
+}
+
+export type AgentNetworkReverseResult = {
+  source: string | null
+  fileName: string
+  diagnostics: AgentNetworkReverseDiagnostic[]
+  stats: AgentNetworkReverseStats
+}
+
+export type AgentNetworkPseudocodeDeliveryInput = {
+  appId: string
+  appName?: string
+  pseudocode: string
+  diagnostics: AgentNetworkReverseDiagnostic[]
+  stats: AgentNetworkReverseStats
+}
+
+export type AgentNetworkPseudocodeDeliveryResult = {
+  deliveryId: string
+}
+
 export class AgentNetworkCompileError extends Error {
   line: number | null
 

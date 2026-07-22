@@ -7,6 +7,7 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { useStore as useAppStore } from '@/app/components/app/store'
 import Header from '@/app/components/workflow/header'
+import { AgentNetworkPseudocodeTrigger } from '@/features/agent-network-workflow/export-trigger'
 import { useResetWorkflowVersionHistory } from '@/service/use-workflow'
 import { useIsChatMode } from '../../hooks'
 import ChatVariableTrigger from './chat-variable-trigger'
@@ -37,7 +38,12 @@ const WorkflowHeader = () => {
     return {
       normal: {
         components: {
-          middle: <FeaturesTrigger />,
+          middle: (
+            <>
+              <AgentNetworkPseudocodeTrigger appId={appDetail?.id} workflowName={appDetail?.name} />
+              <FeaturesTrigger />
+            </>
+          ),
           chatVariableTrigger: <ChatVariableTrigger />,
         },
         runAndHistoryProps: {
@@ -53,7 +59,7 @@ const WorkflowHeader = () => {
         onRestoreSettled: resetWorkflowVersionHistory,
       },
     }
-  }, [resetWorkflowVersionHistory, isChatMode, viewHistoryProps])
+  }, [appDetail?.id, appDetail?.name, resetWorkflowVersionHistory, isChatMode, viewHistoryProps])
   return (
     <Header {...headerProps} />
   )

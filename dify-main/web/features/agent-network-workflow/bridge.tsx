@@ -1,6 +1,8 @@
 'use client'
 
-import type { AgentNetworkCompileResult } from './types'
+import type {
+  AgentNetworkCompileResult,
+} from './types'
 import type { ApplyAgentNetworkPseudocodeOptions } from './use-agent-network-workflow'
 import { useEffect } from 'react'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
