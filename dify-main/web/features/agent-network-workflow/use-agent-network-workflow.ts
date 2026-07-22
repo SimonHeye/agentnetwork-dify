@@ -6,6 +6,7 @@ import type {
   AgentNetworkReverseResult,
 } from './types'
 import type { Edge, Node } from '@/app/components/workflow/types'
+import { useCallback } from 'react'
 import { useReactFlow } from 'reactflow'
 import { collaborationManager } from '@/app/components/workflow/collaboration/core/collaboration-manager'
 import { useHooksStore } from '@/app/components/workflow/hooks-store/store'
@@ -15,21 +16,18 @@ import { BlockEnum } from '@/app/components/workflow/types'
 import {
   compileAgentNetworkPseudocode,
 } from './compiler'
+import { AGENT_NETWORK_DEFAULT_MODEL } from './constants'
 import { compileDifyGraphToAgentNetworkPseudocode } from './reverse-compiler'
 import { AgentNetworkCompileError } from './types'
 
-export type ApplyAgentNetworkPseudocodeOptions = AgentNetworkCompileOptions & {
+export type ApplyAgentNetworkGraphOptions = {
   preservePositions?: boolean
   saveDraft?: boolean
 }
 
+export type ApplyAgentNetworkPseudocodeOptions = AgentNetworkCompileOptions & ApplyAgentNetworkGraphOptions
+
 const CANVAS_REVISION_FIELD = '_agentNetworkRevision'
-export const AGENT_NETWORK_DEFAULT_MODEL: AgentNetworkModelConfig = {
-  provider: 'langgenius/deepseek/deepseek',
-  name: 'deepseek-chat',
-  mode: 'chat',
-  completion_params: {},
-}
 let canvasRevision = 0
 
 export function useAgentNetworkWorkflow() {
@@ -38,16 +36,35 @@ export function useAgentNetworkWorkflow() {
   const doSyncWorkflowDraft = useHooksStore(state => state.doSyncWorkflowDraft)
   const { handleUpdateWorkflowCanvas } = useWorkflowUpdate()
 
-  const applyPseudocode = async (
-    source: string,
-    options: ApplyAgentNetworkPseudocodeOptions = {},
-  ): Promise<AgentNetworkCompileResult> => {
+  const applyCompiledGraph = useCallback(async (
+    graph: AgentNetworkCompileResult['graph'],
+    options: ApplyAgentNetworkGraphOptions = {},
+  ): Promise<AgentNetworkCompileResult['graph']> => {
     if (collaborationManager.isConnected() && !collaborationManager.getIsLeader()) {
       throw new AgentNetworkCompileError(
         'Only the collaboration leader can replace the workflow from AgentNetwork pseudocode',
       )
     }
 
+    const { preservePositions = true, saveDraft = false } = options
+    const preparedGraph = preservePositions
+      ? preserveCanvasState(graph, reactFlow.getNodes(), reactFlow.getViewport())
+      : graph
+    const revision = `${Date.now()}-${++canvasRevision}`
+    const canvasGraph = withCanvasRevision(preparedGraph, revision)
+
+    handleUpdateWorkflowCanvas(canvasGraph)
+    if (saveDraft) {
+      await waitForCanvasGraph(reactFlow, preparedGraph, revision)
+      await doSyncWorkflowDraft()
+    }
+    return preparedGraph
+  }, [doSyncWorkflowDraft, handleUpdateWorkflowCanvas, reactFlow])
+
+  const applyPseudocode = useCallback(async (
+    source: string,
+    options: ApplyAgentNetworkPseudocodeOptions = {},
+  ): Promise<AgentNetworkCompileResult> => {
     const { preservePositions = true, saveDraft = false, ...compileOptions } = options
     const configuredDefaults = workflowStore.getState().nodesDefaultConfigs?.[BlockEnum.LLM]
     const llmDefaultConfig = compileOptions.llmDefaultConfig ?? asRecord(configuredDefaults)
@@ -56,19 +73,9 @@ export function useAgentNetworkWorkflow() {
       model: compileOptions.model ?? modelFromDefaultConfig(llmDefaultConfig) ?? AGENT_NETWORK_DEFAULT_MODEL,
       llmDefaultConfig,
     })
-    const graph = preservePositions
-      ? preserveCanvasState(result.graph, reactFlow.getNodes(), reactFlow.getViewport())
-      : result.graph
-    const revision = `${Date.now()}-${++canvasRevision}`
-    const canvasGraph = withCanvasRevision(graph, revision)
-
-    handleUpdateWorkflowCanvas(canvasGraph)
-    if (saveDraft) {
-      await waitForCanvasGraph(reactFlow, graph, revision)
-      await doSyncWorkflowDraft()
-    }
+    const graph = await applyCompiledGraph(result.graph, { preservePositions, saveDraft })
     return { ...result, graph }
-  }
+  }, [applyCompiledGraph, workflowStore])
 
   const exportPseudocode = (
     options: AgentNetworkReverseOptions = {},
@@ -80,7 +87,7 @@ export function useAgentNetworkWorkflow() {
     }, options)
   }
 
-  return { applyPseudocode, exportPseudocode }
+  return { applyCompiledGraph, applyPseudocode, exportPseudocode }
 }
 
 function preserveCanvasState(

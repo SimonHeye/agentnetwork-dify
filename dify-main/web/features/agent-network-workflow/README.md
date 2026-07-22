@@ -2,7 +2,7 @@
 
 Provides both directions of the Dify and Agent Network workflow integration:
 
-- Agent Network pseudocode to a Dify workflow canvas.
+- Agent Network pseudocode to a Dify workflow canvas through the browser or Next.js server.
 - The current Dify canvas to canonical pseudocode, followed by server-side HTTP delivery to Agent Network.
 
 ## Entry Points
@@ -59,6 +59,39 @@ For a local verification receiver, run:
 node web/scripts/mock-agent-network-pseudocode-receiver.mjs
 ```
 
+## HTTP Demo
+
+The web service exposes a demo endpoint that compiles pseudocode on the Next.js server and queues the resulting graph for an open workflow editor. The editor polls for compiled graphs and applies them directly through `useAgentNetworkWorkflow`; this path does not use the browser `window` bridge.
+
+1. Start the web service and open the target workflow editor in the browser.
+2. Copy the app id from the workflow URL.
+3. Send this request from Apifox:
+
+```http
+POST http://localhost:3000/agent-network/pseudocode
+Content-Type: application/json
+Authorization: Bearer <AGENT_NETWORK_API_KEY>
+```
+
+```json
+{
+  "app_id": "replace-with-the-open-app-id",
+  "source": "probe = ReasoningGroup(task=task)\nif probe.get(\"kind\") == \"calc\":\n    answer = CalculatorGroup(task=task)\nelse:\n    answer = SearchGroup(task=task)\nfinal_result = answer",
+  "preserve_positions": true,
+  "save_draft": true
+}
+```
+
+`Authorization` is optional in development when `AGENT_NETWORK_API_KEY` is unset. Production requires `AGENT_NETWORK_API_KEY` on the web service. A successful request returns `202` with a `command_id`; the open editor normally renders the graph within one second.
+
+Query the browser processing result with:
+
+```http
+GET http://localhost:3000/agent-network/pseudocode?command_id=<command_id>
+```
+
+The command store is intentionally process-local for this demo and expires commands after ten minutes. A multi-instance deployment must replace `command-store.ts` with Redis or another shared store before production use.
+
 All generated Group nodes share one model unless `model` or a group override is supplied. The browser entry uses the current Dify LLM default when available and otherwise falls back to:
 
 ```ts
@@ -75,6 +108,10 @@ const DEFAULT_MODEL = {
 - `compiler`
 - `compiler-helpers`
 - `bridge`
+- `command-client`
+- `command-consumer`
+- `command-store`
+- `constants`
 - `reverse-compiler`
 - `send-pseudocode`
 - `python-syntax`

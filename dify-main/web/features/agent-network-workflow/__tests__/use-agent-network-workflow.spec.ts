@@ -91,6 +91,30 @@ describe('useAgentNetworkWorkflow', () => {
   })
 
   describe('Canvas updates', () => {
+    it('should apply an already compiled graph without parsing pseudocode again', async () => {
+      const { result } = renderHook(() => useAgentNetworkWorkflow())
+      const compiledGraph: AgentNetworkCompileResult['graph'] = {
+        nodes: [{
+          id: 'server-node',
+          position: { x: 80, y: 280 },
+          data: { type: BlockEnum.LLM, title: 'Server node', desc: '' },
+        }],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 0.7 },
+      }
+
+      await act(async () => {
+        await result.current.applyCompiledGraph(compiledGraph, {
+          preservePositions: false,
+          saveDraft: true,
+        })
+      })
+
+      expect(mockHandleUpdateWorkflowCanvas).toHaveBeenCalledTimes(1)
+      expect(mockCanvasState.nodes[0]?.id).toBe('server-node')
+      expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1)
+    })
+
     it('should compile with Dify defaults and preserve matching node positions', async () => {
       const { result } = renderHook(() => useAgentNetworkWorkflow())
       let compiled: Awaited<ReturnType<typeof result.current.applyPseudocode>> | undefined
