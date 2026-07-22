@@ -1,3 +1,4 @@
+import type { Position } from 'reactflow'
 import type {
   ParsedCall,
   ParsedComparison,
@@ -11,7 +12,6 @@ import type {
   AgentNetworkModelConfig,
 } from './types'
 import type { Edge, Node, WorkflowDataUpdater } from '@/app/components/workflow/types'
-import { Position } from 'reactflow'
 import { BlockEnum } from '@/app/components/workflow/types'
 import {
   cloneProducerMap,
@@ -45,6 +45,8 @@ const BASE_X = 80
 const BASE_Y = 280
 const HORIZONTAL_GAP = 320
 const VERTICAL_GAP = 180
+const LEFT_POSITION = 'left' as Position
+const RIGHT_POSITION = 'right' as Position
 
 type CallStep = {
   id: string
@@ -675,8 +677,8 @@ class DifyGraphCompiler {
       width: NODE_WIDTH,
       height,
       positionAbsolute: { ...position },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: RIGHT_POSITION,
+      targetPosition: LEFT_POSITION,
       selected: false,
     }
   }
