@@ -36,6 +36,7 @@ const metaData = genNodeMetaData({
 const nodeDefault: NodeDefault<LLMNodeType> = {
   metaData,
   defaultValue: {
+    agent_network_group: '',
     skills: [],
     model: {
       provider: '',

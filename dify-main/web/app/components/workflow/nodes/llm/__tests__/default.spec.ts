@@ -79,4 +79,8 @@ describe('llm default node validation', () => {
     expect(result.isValid).toBe(true)
     expect(result.errorMessage).toBe('')
   })
+
+  it('should initialize AgentNetwork Group as unselected', () => {
+    expect(nodeDefault.defaultValue.agent_network_group).toBe('')
+  })
 })

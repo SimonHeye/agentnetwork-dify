@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "Descărcarea a fost finalizată.",
   "operation.duplicate": "Duplică",
   "operation.edit": "Editează",
+  "operation.execute": "Execută",
   "operation.exporting": "Se exportă",
   "operation.fill": "Completare automată",
   "operation.format": "Format",

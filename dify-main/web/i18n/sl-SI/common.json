@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "Prenos končan.",
   "operation.duplicate": "Podvoji",
   "operation.edit": "Uredi",
+  "operation.execute": "Izvedi",
   "operation.exporting": "Izvažanje",
   "operation.fill": "Samodejno izpolni",
   "operation.format": "Format",

@@ -332,4 +332,20 @@ describe('llm/use-config', () => {
       context: inputRef.current.context,
     }))
   })
+
+  it('updates the selected AgentNetwork Group without replacing other node data', () => {
+    const { result } = renderHook(() => useConfig('llm-node', inputRef.current))
+
+    act(() => {
+      result.current.handleAgentNetworkGroupChange('CalculatorGroup')
+    })
+
+    expect(setInputs).toHaveBeenCalledWith(expect.objectContaining({
+      agent_network_group: 'CalculatorGroup',
+      title: 'CalculatorGroup',
+      model: inputRef.current.model,
+      prompt_template: inputRef.current.prompt_template,
+      context: inputRef.current.context,
+    }))
+  })
 })

@@ -1,6 +1,7 @@
 import type { CommonNodeType, Memory, ModelConfig, PromptItem, ValueSelector, Variable, VisionSetting } from '@/app/components/workflow/types'
 
 export type LLMNodeType = CommonNodeType & {
+  agent_network_group?: string
   model: ModelConfig
   skills?: string[]
   prompt_template: PromptItem[] | PromptItem

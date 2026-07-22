@@ -436,6 +436,7 @@ class DifyGraphCompiler {
       ...normalized,
       type: BlockEnum.LLM,
       title: override?.title ?? step.functionName,
+      agent_network_group: step.functionName,
       desc: typeof normalized.desc === 'string' ? normalized.desc : '',
       selected: false,
       model,

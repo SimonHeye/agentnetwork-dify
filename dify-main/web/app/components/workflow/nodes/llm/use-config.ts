@@ -106,6 +106,13 @@ const useConfig = (id: string, payload: LLMNodeType) => {
     setInputs(nextInputs)
   }, [inputRef, setInputs])
 
+  const handleAgentNetworkGroupChange = useCallback((group: string) => {
+    const nextInputs = produce(inputRef.current, (draft) => {
+      draft.agent_network_group = group
+      draft.title = group
+    })
+    setInputs(nextInputs)
+  }, [inputRef, setInputs])
   // change to vision model to set vision enabled, else disabled
   useEffect(() => {
     if (!modelChanged)
@@ -149,6 +156,7 @@ const useConfig = (id: string, payload: LLMNodeType) => {
     handleModelChanged,
     handleCompletionParamsChange,
     handleSkillsChange,
+    handleAgentNetworkGroupChange,
     isShowVars: promptConfig.isShowVars,
     handleVarListChange: promptConfig.handleVarListChange,
     handleVarNameChange: promptConfig.handleVarNameChange,

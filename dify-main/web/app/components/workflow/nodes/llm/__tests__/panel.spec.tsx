@@ -117,6 +117,7 @@ const buildUseConfigResult = (overrides?: Partial<MockUseConfigReturn>) => ({
   handleModelChanged: vi.fn(),
   hasSetBlockStatus: false,
   handleCompletionParamsChange: vi.fn(),
+  handleAgentNetworkGroupChange: vi.fn(),
   handleSkillsChange: vi.fn(),
   handleContextVarChange: vi.fn(),
   filterInputVar: vi.fn(),
@@ -219,6 +220,26 @@ describe('LLM Panel', () => {
       await user.click(screen.getByRole('option', { name: 'gimp-blur-region' }))
 
       expect(handleSkillsChange).toHaveBeenCalledWith(['gimp-blur-region'])
+    })
+  })
+
+  describe('AgentNetwork Group configuration', () => {
+    it('should pass the selected fixed Group to the node configuration handler', async () => {
+      const user = userEvent.setup()
+      const handleAgentNetworkGroupChange = vi.fn()
+      mockUseConfig.mockReturnValue(buildUseConfigResult({
+        inputs: {
+          ...baseNodeData,
+          agent_network_group: undefined,
+        },
+        handleAgentNetworkGroupChange,
+      }))
+      renderPanel()
+
+      await user.click(screen.getByRole('combobox', { name: 'workflow.nodes.llm.agentNetworkGroup' }))
+      await user.click(screen.getByRole('option', { name: 'CalculatorGroup' }))
+
+      expect(handleAgentNetworkGroupChange).toHaveBeenCalledWith('CalculatorGroup')
     })
   })
 })

@@ -52,31 +52,31 @@ describe('compileDifyGraphToAgentNetworkPseudocode', () => {
     }))
   })
 
-  it('normalizes a manually renamed LLM node instead of dropping it', () => {
+  it('uses the selected fixed Group independently of the display title', () => {
     const graph = compileAgentNetworkPseudocode(
-      'answer = ReviewGroup(task=task)\nfinal_result = answer',
+      'answer = SearchGroup(task=task)\nfinal_result = answer',
       { model },
     ).graph
-    graph.nodes = graph.nodes.map(node => node.id === 'reviewgroup'
+    graph.nodes = graph.nodes.map(node => node.id === 'searchgroup'
       ? { ...node, data: { ...node.data, title: 'Result review', skills: ['gimp-blur-region'] } }
       : node)
 
     const result = compileDifyGraphToAgentNetworkPseudocode(graph)
 
-    expect(result.source).toContain('answer = ResultReviewGroup(')
+    expect(result.source).toContain('answer = SearchGroup(')
     expect(result.source).toContain('skills=["gimp-blur-region"],')
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
       code: 'NORMALIZED_FUNCTION_NAME',
-      nodeId: 'reviewgroup',
+      nodeId: 'searchgroup',
     }))
   })
 
   it('keeps future skill identifiers without a hard-coded allowlist', () => {
     const graph = compileAgentNetworkPseudocode(
-      'answer = ReviewGroup(task=task)\nfinal_result = answer',
+      'answer = SearchGroup(task=task)\nfinal_result = answer',
       { model },
     ).graph
-    graph.nodes = graph.nodes.map(node => node.id === 'reviewgroup'
+    graph.nodes = graph.nodes.map(node => node.id === 'searchgroup'
       ? { ...node, data: { ...node.data, skills: ['new-skill-v2', 'new-skill-v2', '', 7] } }
       : node)
 
@@ -106,21 +106,21 @@ describe('compileDifyGraphToAgentNetworkPseudocode', () => {
     }))
   })
 
-  it('uses a stable generated function name for a non-ASCII manual title', () => {
+  it('keeps Group optional and falls back to the node title during export', () => {
     const graph = compileAgentNetworkPseudocode(
-      'answer = ReviewGroup(task=task)\nfinal_result = answer',
+      'answer = SearchGroup(task=task)\nfinal_result = answer',
       { model },
     ).graph
-    graph.nodes = graph.nodes.map(node => node.id === 'reviewgroup'
-      ? { ...node, data: { ...node.data, title: '\u7ED3\u679C\u5BA1\u6838' } }
+    graph.nodes = graph.nodes.map(node => node.id === 'searchgroup'
+      ? { ...node, data: { ...node.data, title: 'LLM 3', agent_network_group: '' } }
       : node)
 
     const result = compileDifyGraphToAgentNetworkPseudocode(graph)
 
-    expect(result.source).toContain('answer = AgentReviewgrGroup(')
+    expect(result.source).toContain('answer = Llm3Group(')
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'GENERATED_FUNCTION_NAME',
-      nodeId: 'reviewgroup',
+      code: 'NORMALIZED_FUNCTION_NAME',
+      nodeId: 'searchgroup',
     }))
   })
 })

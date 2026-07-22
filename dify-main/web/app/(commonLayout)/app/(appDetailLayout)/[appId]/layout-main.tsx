@@ -101,7 +101,7 @@ const AppDetailLayout: FC<IAppDetailLayoutProps> = (props) => {
       workspacePermissionKeys,
       isRbacEnabled,
     })
-    const isLayoutPath = pathname.endsWith('configuration') || pathname.endsWith('workflow')
+    const isLayoutPath = pathname.endsWith('configuration') || pathname.endsWith('workflow') || pathname.endsWith('agent-network')
     const isLogsPath = pathname.endsWith('logs')
     const isAnnotationsPath = pathname.endsWith('annotations')
     const isOverviewPath = pathname.endsWith('overview')
@@ -124,7 +124,7 @@ const AppDetailLayout: FC<IAppDetailLayoutProps> = (props) => {
     if ((routeAppDetail.mode === AppModeEnum.WORKFLOW || routeAppDetail.mode === AppModeEnum.ADVANCED_CHAT) && (pathname).endsWith('configuration')) {
       router.replace(`/app/${appId}/workflow`)
     }
-    else if ((routeAppDetail.mode !== AppModeEnum.WORKFLOW && routeAppDetail.mode !== AppModeEnum.ADVANCED_CHAT) && (pathname).endsWith('workflow')) {
+    else if ((routeAppDetail.mode !== AppModeEnum.WORKFLOW && routeAppDetail.mode !== AppModeEnum.ADVANCED_CHAT) && (pathname.endsWith('workflow') || pathname.endsWith('agent-network'))) {
       router.replace(`/app/${appId}/configuration`)
       return
     }
@@ -141,7 +141,7 @@ const AppDetailLayout: FC<IAppDetailLayoutProps> = (props) => {
     )
   }
 
-  const isWorkflowPage = pathname.endsWith('/workflow')
+  const isWorkflowPage = pathname.endsWith('/workflow') || pathname.endsWith('/agent-network')
 
   return (
     <div className={cn(

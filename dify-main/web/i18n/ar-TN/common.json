@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "اكتمل التنزيل.",
   "operation.duplicate": "تكرار",
   "operation.edit": "تعديل",
+  "operation.execute": "تنفيذ",
   "operation.exporting": "جارٍ التصدير",
   "operation.fill": "ملء تلقائي",
   "operation.format": "تنسيق",

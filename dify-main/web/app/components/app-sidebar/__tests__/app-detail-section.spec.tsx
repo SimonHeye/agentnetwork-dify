@@ -190,6 +190,17 @@ describe('AppDetailSection', () => {
       expect(screen.queryByRole('link', { name: 'common.appMenus.overview' })).not.toBeInTheDocument()
     })
 
+    it('should render Agent Network chat for editable workflow apps', () => {
+      mockAppMode = 'workflow'
+      mockAppPermissionKeys = [AppACLPermission.ViewLayout]
+
+      render(<AppDetailSection />)
+
+      expect(screen.getByRole('link', { name: 'common.appMenus.agentNetworkChat' }))
+        .toHaveAttribute('href', '/app/app-1/agent-network')
+      expect(screen.getByRole('link', { name: 'common.appMenus.promptEng' }))
+        .toHaveAttribute('href', '/app/app-1/workflow')
+    })
     it('should hide the layout navigation when layout access is missing', () => {
       // Act
       render(<AppDetailSection />)

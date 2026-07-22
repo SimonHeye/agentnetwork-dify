@@ -26,7 +26,7 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const { exportPseudocode } = useAgentNetworkWorkflow()
   const [open, setOpen] = useState(false)
   const [result, setResult] = useState<AgentNetworkReverseResult | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [activeAction, setActiveAction] = useState<'save' | 'execute' | null>(null)
 
   const handleOpen = useCallback(() => {
     setResult(exportPseudocode({ workflowName }))
@@ -40,10 +40,35 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   }, [])
 
   const handleSave = useCallback(async () => {
-    if (!appId || saving)
+    if (!appId || activeAction)
       return
 
-    setSaving(true)
+    setActiveAction('save')
+    try {
+      let draftSaved = false
+      await doSyncWorkflowDraft(false, {
+        onSuccess: () => {
+          draftSaved = true
+        },
+      })
+      if (!draftSaved)
+        throw new Error('DIFY_DRAFT_SAVE_FAILED')
+
+      toast.success(t('api.saved'))
+    }
+    catch {
+      toast.error(t('api.actionFailed'))
+    }
+    finally {
+      setActiveAction(null)
+    }
+  }, [activeAction, appId, doSyncWorkflowDraft, t])
+
+  const handleExecute = useCallback(async () => {
+    if (!appId || activeAction)
+      return
+
+    setActiveAction('execute')
     try {
       let draftSaved = false
       await doSyncWorkflowDraft(false, {
@@ -69,27 +94,31 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
         diagnostics: nextResult.diagnostics,
         stats: nextResult.stats,
       })
-      toast.success(t('api.saved'))
+      toast.success(t('api.success'))
     }
     catch {
       toast.error(t('api.actionFailed'))
     }
     finally {
-      setSaving(false)
+      setActiveAction(null)
     }
-  }, [appId, doSyncWorkflowDraft, exportPseudocode, saving, t, workflowName])
+  }, [activeAction, appId, doSyncWorkflowDraft, exportPseudocode, t, workflowName])
 
   const diagnostics = result?.diagnostics ?? []
 
   return (
     <>
-      <Button variant="secondary" disabled={!appId} loading={saving} onClick={handleSave}>
+      <Button variant="secondary" disabled={!appId || activeAction !== null} loading={activeAction === 'save'} onClick={handleSave}>
         <span aria-hidden="true" className="mr-1 i-ri-save-line size-4" />
         {t('operation.save')}
       </Button>
+      <Button variant="secondary" disabled={!appId || activeAction !== null} loading={activeAction === 'execute'} onClick={handleExecute}>
+        <span aria-hidden="true" className="mr-1 i-ri-play-line size-4" />
+        {t('operation.execute')}
+      </Button>
       <Button variant="secondary" disabled={!appId} onClick={handleOpen}>
         <span aria-hidden="true" className="mr-1 i-ri-file-code-line size-4" />
-        {`${t('operation.view')} Python`}
+        {t('operation.view')}
       </Button>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[min(880px,calc(100vw-2rem))] max-w-none! flex-col overflow-hidden! p-0!">

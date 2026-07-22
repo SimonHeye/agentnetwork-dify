@@ -6,6 +6,7 @@ import type {
 } from './types'
 import type { Edge, Node, WorkflowDataUpdater } from '@/app/components/workflow/types'
 import { BlockEnum } from '@/app/components/workflow/types'
+import { isAgentNetworkGroup } from './groups'
 
 const SUPPORTED_NODE_TYPES = new Set<BlockEnum>([
   BlockEnum.Start,
@@ -197,7 +198,11 @@ class GraphReverseCompiler {
         continue
 
       const title = node.data.title || 'Agent'
-      this.functionNames.set(node.id, functionName(title, node.id, this.diagnostics))
+      const configuredGroup = asRecord(node.data).agent_network_group
+      const callable = isAgentNetworkGroup(configuredGroup)
+        ? configuredGroup
+        : fallbackGroupName(title, node.id, this.diagnostics)
+      this.functionNames.set(node.id, callable)
       const hints = endHints.get(node.id) ?? []
       let variable = hints[0]
       if (hints.length > 1) {
@@ -650,7 +655,7 @@ export function compileDifyGraphToAgentNetworkPseudocode(
   }
 }
 
-function functionName(
+function fallbackGroupName(
   title: string,
   nodeId: string,
   diagnostics: AgentNetworkReverseDiagnostic[],
@@ -677,16 +682,6 @@ function functionName(
   return fallback
 }
 
-function stripGroupSuffix(value: string): string {
-  return value.replace(/group$/i, '')
-}
-
-function snakeName(value: string): string {
-  const expanded = value.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-  const normalized = expanded.replace(/[^A-Z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase()
-  return normalized && !/^\d/.test(normalized) ? normalized : ''
-}
-
 function pascalName(value: string): string {
   const words = value
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -695,6 +690,16 @@ function pascalName(value: string): string {
     return ''
   const result = words.map(word => `${word[0]!.toUpperCase()}${word.slice(1).toLowerCase()}`).join('')
   return /^\d/.test(result) ? `Agent${result}` : result
+}
+
+function stripGroupSuffix(value: string): string {
+  return value.replace(/group$/i, '')
+}
+
+function snakeName(value: string): string {
+  const expanded = value.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  const normalized = expanded.replace(/[^A-Z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase()
+  return normalized && !/^\d/.test(normalized) ? normalized : ''
 }
 
 function uniqueName(base: string, used: Set<string>): string {

@@ -4,6 +4,8 @@ import type { ComponentProps } from 'react'
 import type { NavIcon } from './nav-link'
 import { cn } from '@langgenius/dify-ui/cn'
 import {
+  RiChat3Fill,
+  RiChat3Line,
   RiDashboard2Fill,
   RiDashboard2Line,
   RiFileList3Fill,
@@ -96,6 +98,15 @@ const AppDetailSection = ({
     })
 
     return [
+      ...(appACLCapabilities.canAccessLayout && isWorkflowApp
+        ? [{
+            name: t('appMenus.agentNetworkChat', { ns: 'common' }),
+            href: `/app/${appId}/agent-network`,
+            icon: RiChat3Line,
+            selectedIcon: RiChat3Fill,
+          }]
+        : []
+      ),
       ...(appACLCapabilities.canAccessLayout
         ? [{
             name: t('appMenus.promptEng', { ns: 'common' }),

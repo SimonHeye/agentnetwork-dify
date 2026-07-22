@@ -16,6 +16,7 @@ import { extractPluginId } from '../../utils/plugin'
 import ConfigVision from '../_base/components/config-vision'
 import VarReferencePicker from '../_base/components/variable/var-reference-picker'
 import ConfigPrompt from './components/config-prompt'
+import { GroupSelector } from './components/group-selector'
 import PanelMemorySection from './components/panel-memory-section'
 import PanelOutputSection from './components/panel-output-section'
 import ReasoningFormatConfig from './components/reasoning-format-config'
@@ -42,6 +43,7 @@ const Panel: FC<NodePanelProps<LLMNodeType>> = ({
     handleModelChanged,
     hasSetBlockStatus,
     handleCompletionParamsChange,
+    handleAgentNetworkGroupChange,
     handleSkillsChange,
     handleContextVarChange,
     filterInputVar,
@@ -131,6 +133,13 @@ const Panel: FC<NodePanelProps<LLMNodeType>> = ({
             readonly={readOnly}
             nodesOutputVars={availableVars}
             availableNodes={availableNodesWithParent}
+          />
+        </Field>
+        <Field title={t(`${i18nPrefix}.agentNetworkGroup`, { ns: 'workflow' })}>
+          <GroupSelector
+            value={inputs.agent_network_group}
+            readOnly={readOnly}
+            onChange={handleAgentNetworkGroupChange}
           />
         </Field>
 

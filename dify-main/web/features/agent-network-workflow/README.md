@@ -16,27 +16,21 @@ function AgentNetworkCaller() {
 }
 ```
 
-When a workflow editor is open, browser integrations and the developer console can use:
-
-```ts
-await window.difyAgentNetworkWorkflow.applyPseudocode(source, {
-  saveDraft: true,
-})
-```
-
-The bridge renders no UI. It exposes only the inbound `applyPseudocode` method while the workflow editor is mounted. Reverse-generated pseudocode is not exposed on `window`.
+The app sidebar Chat entry renders the same `WorkflowApp` and opens the Agent Network conversation panel inside the workflow React tree. It calls `applyPseudocode` directly and does not expose a browser `window` API.
 
 ## Reverse Delivery
 
 The workflow header opens a read-only preview containing generated pseudocode and compiler diagnostics. It intentionally has no clipboard or download action.
 
-The separate Save action is the delivery boundary. It performs these operations in order:
+The Save action only saves the current Dify workflow draft. It never generates or sends pseudocode.
+
+The separate Execute action is the delivery boundary. It performs these operations in order:
 
 1. Force-save the current Dify workflow draft.
 1. Reverse-compile the latest canvas graph, including LLM `data.skills`, to pseudocode.
 1. Post the pseudocode to the internal transport only after the draft save succeeds.
 
-Opening the preview never sends data. If reverse compilation reports an error, the diagnostics window opens and no HTTP request is made.
+Opening the preview and saving the draft never send data. If reverse compilation reports an error during execution, the diagnostics window opens and no HTTP request is made.
 
 Delivery uses two hops:
 
@@ -53,10 +47,10 @@ AGENT_NETWORK_PSEUDOCODE_TIMEOUT_MS=10000
 
 The outbound body is JSON with `schema_version`, `event`, `delivery_id`, `sent_at`, `app`, `pseudocode`, `diagnostics`, and `stats`. The current contract version is `1.0`, and the event name is `dify.workflow.pseudocode.generated`.
 
-For a local verification receiver, run:
+For the standalone local planner and execution receiver, run from the repository root:
 
 ```powershell
-node web/scripts/mock-agent-network-pseudocode-receiver.mjs
+node mock-agent-network-server.mjs
 ```
 
 ## HTTP Demo

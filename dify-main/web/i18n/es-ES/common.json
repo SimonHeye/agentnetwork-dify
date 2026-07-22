@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "Descarga completada.",
   "operation.duplicate": "Duplicar",
   "operation.edit": "Editar",
+  "operation.execute": "Ejecutar",
   "operation.exporting": "Exportando",
   "operation.fill": "Autocompletar",
   "operation.format": "Formato",

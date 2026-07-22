@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "Загрузка завершена.",
   "operation.duplicate": "Дублировать",
   "operation.edit": "Редактировать",
+  "operation.execute": "Выполнить",
   "operation.exporting": "Экспорт",
   "operation.fill": "Автозаполнение",
   "operation.format": "Формат",

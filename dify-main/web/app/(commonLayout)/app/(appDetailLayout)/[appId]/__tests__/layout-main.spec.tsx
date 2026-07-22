@@ -176,6 +176,21 @@ describe('AppDetailLayout', () => {
     expect(useStore.getState().appDetail?.id).toBe('app-1')
   })
 
+  it('should allow users with layout access to open Agent Network chat', async () => {
+    mockPathname = '/app/app-1/agent-network'
+
+    render(
+      <AppDetailLayout appId="app-1">
+        <div>App page content</div>
+      </AppDetailLayout>,
+    )
+
+    await waitForAppContent()
+
+    expect(mockReplace).not.toHaveBeenCalledWith('/app/app-1/overview')
+    expect(useStore.getState().appDetail?.id).toBe('app-1')
+  })
+
   it('should redirect workflow pages when layout access is missing', async () => {
     mockPathname = '/app/app-1/workflow'
     mockFetchAppDetailDirect.mockResolvedValue(createAppDetail({ permission_keys: [] }))

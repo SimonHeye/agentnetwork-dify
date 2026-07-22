@@ -53,7 +53,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
   it('should show pseudocode and diagnostics without copy or download actions', () => {
     render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
 
-    fireEvent.click(screen.getByRole('button', { name: /operation\.view.*Python/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.view' }))
 
     expect(screen.getByText(/SearchGroup/)).toBeInTheDocument()
     expect(screen.getByText(/Generated answer/)).toBeInTheDocument()
@@ -62,9 +62,19 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     expect(mockSendPseudocode).not.toHaveBeenCalled()
   })
 
-  it('should save the draft before sending the latest pseudocode', async () => {
+  it('should save the draft without sending pseudocode', async () => {
     render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
     fireEvent.click(screen.getByRole('button', { name: 'common.operation.save' }))
+
+    await waitFor(() => expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1))
+    expect(mockExportPseudocode).not.toHaveBeenCalled()
+    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockToastSuccess).toHaveBeenCalledWith('common.api.saved')
+  })
+
+  it('should save the draft before executing with the latest pseudocode', async () => {
+    render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
 
     await waitFor(() => expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(mockSendPseudocode).toHaveBeenCalledWith({
@@ -81,7 +91,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     if (saveCallOrder === undefined || sendCallOrder === undefined)
       throw new Error('Expected both save and delivery calls')
     expect(saveCallOrder).toBeLessThan(sendCallOrder)
-    expect(mockToastSuccess).toHaveBeenCalledWith('common.api.saved')
+    expect(mockToastSuccess).toHaveBeenCalledWith('common.api.success')
   })
 
   it('should not send when saving the Dify draft fails', async () => {
@@ -98,6 +108,20 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     expect(mockSendPseudocode).not.toHaveBeenCalled()
   })
 
+  it('should not execute when saving the Dify draft fails', async () => {
+    mockDoSyncWorkflowDraft.mockImplementation(async (
+      _notRefreshWhenSyncError: boolean | undefined,
+      callback?: { onError?: () => void },
+    ) => callback?.onError?.())
+
+    render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('common.api.actionFailed'))
+    expect(mockExportPseudocode).not.toHaveBeenCalled()
+    expect(mockSendPseudocode).not.toHaveBeenCalled()
+  })
+
   it('should show diagnostics and not send when reverse compilation fails', async () => {
     mockExportPseudocode.mockReturnValue({
       ...result,
@@ -106,7 +130,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     })
     render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'common.operation.save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
 
     expect(await screen.findByText('Unsupported node')).toBeInTheDocument()
     expect(mockSendPseudocode).not.toHaveBeenCalled()

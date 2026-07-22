@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "ダウンロード完了",
   "operation.duplicate": "複製",
   "operation.edit": "編集",
+  "operation.execute": "実行",
   "operation.exporting": "エクスポート中",
   "operation.fill": "自動入力",
   "operation.format": "フォーマット",

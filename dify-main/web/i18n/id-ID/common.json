@@ -440,6 +440,7 @@
   "operation.downloadSuccess": "Unduh Selesai.",
   "operation.duplicate": "Duplikat",
   "operation.edit": "Mengedit",
+  "operation.execute": "Jalankan",
   "operation.exporting": "Mengekspor",
   "operation.fill": "Isi otomatis",
   "operation.format": "Format",
