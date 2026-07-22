@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSameOriginRequest } from '../same-origin'
 
 const diagnosticSchema = z.object({
   severity: z.enum(['warning', 'error']),
@@ -28,7 +29,7 @@ const MIN_TIMEOUT_MS = 1_000
 const MAX_TIMEOUT_MS = 60_000
 
 export async function POST(request: Request) {
-  if (!isSameOrigin(request))
+  if (!isSameOriginRequest(request))
     return json({ code: 'CROSS_ORIGIN_REQUEST' }, 403)
 
   const input = deliverySchema.safeParse(await readJson(request))
@@ -78,11 +79,6 @@ export async function POST(request: Request) {
   }
 
   return json({ delivery_id: deliveryId, status: 'accepted' }, 202)
-}
-
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin')
-  return !origin || origin === new URL(request.url).origin
 }
 
 async function readJson(request: Request): Promise<unknown> {

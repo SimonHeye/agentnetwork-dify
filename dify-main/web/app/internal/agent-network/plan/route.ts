@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSameOriginRequest } from '../same-origin'
 
 const requestSchema = z.object({
   appId: z.string().min(1).max(128),
@@ -15,7 +16,7 @@ const MIN_TIMEOUT_MS = 1_000
 const MAX_TIMEOUT_MS = 120_000
 
 export async function POST(request: Request) {
-  if (!isSameOrigin(request))
+  if (!isSameOriginRequest(request))
     return json({ code: 'CROSS_ORIGIN_REQUEST' }, 403)
 
   const input = requestSchema.safeParse(await readJson(request))
@@ -69,11 +70,6 @@ export async function POST(request: Request) {
   catch {
     return json({ code: 'AGENT_NETWORK_UNAVAILABLE' }, 502)
   }
-}
-
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin')
-  return !origin || origin === new URL(request.url).origin
 }
 
 async function readJson(request: Request | Response): Promise<unknown> {
