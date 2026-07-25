@@ -53,6 +53,39 @@ For the standalone local planner and execution receiver, run from the repository
 node mock-agent-network-server.mjs
 ```
 
+## Reverse Compiler Contracts
+
+`graph-to-pseudocode.ts` classifies every `BlockEnum` value. The full enum is
+larger than the ordinary Workflow node menu because it also contains dynamic
+plugin nodes, knowledge-pipeline nodes, feature-gated nodes, legacy data, and
+internal container helpers.
+
+| Category | Dify node types | Pseudocode contract |
+| --- | --- | --- |
+| Entry | User Input, Schedule Trigger, Webhook Trigger, Plugin Trigger, DataSource | Injected input namespace or a typed trigger/data-source call |
+| Model and retrieval | LLM, Knowledge Retrieval, Agent, Agent V2 | `LLM`, selected `*Group`, `KnowledgeRetrieval`, `Agent`, or `AgentV2` assignment |
+| Transformation | Code, Template Transform, HTTP Request, Tool, Parameter Extractor, Document Extractor, List Operator, Variable Aggregator | Typed assignment with selectors and node configuration |
+| Control | If/Else, Question Classifier, Human Input | Python `if`/`elif`/`else` branches |
+| Containers | Iteration, Loop | Iteration is always `for ... in enumerate(...)`; Loop is always bounded `for ... in range(loop_count)` with optional `break` |
+| Mutation | Variable Assigner | Assignment, append/extend, arithmetic update, clear, or remove operation |
+| Output | Answer, End, KnowledgeBase | `reply(...)`, `final_result = value/dict`, or knowledge-index result |
+| Internal | Start Placeholder, DataSource Empty, Iteration Start, Loop Start, Loop End | Structural only; container starts provide aliases and Loop End emits `break` |
+
+Skills have one owner: only an LLM node's `data.skills` becomes
+`skills=[...]`. Tool nodes are standalone calls. Native Agent and Agent V2
+nodes preserve `agent_parameters` or `agent_binding`; those fields are not
+reinterpreted as skills.
+
+An LLM is emitted as an Agent Network group only when
+`data.agent_network_group` contains a valid Python function name ending in
+`Group`. Otherwise it is emitted as native `LLM(...)`. This keeps future group
+names round-trippable without misclassifying ordinary Dify LLM nodes.
+
+End keeps the Agent Network top-level output convention:
+
+- one output: `final_result = expression`
+- multiple outputs: `final_result = {"name": expression, ...}`
+
 ## HTTP Demo
 
 The web service exposes a demo endpoint that compiles pseudocode on the Next.js server and queues the resulting graph for an open workflow editor. The editor polls for compiled graphs and applies them directly through `useAgentNetworkWorkflow`; this path does not use the browser `window` bridge.
@@ -106,6 +139,7 @@ const DEFAULT_MODEL = {
 - `command-consumer`
 - `command-store`
 - `constants`
+- `graph-to-pseudocode`
 - `reverse-compiler`
 - `send-pseudocode`
 - `python-syntax`

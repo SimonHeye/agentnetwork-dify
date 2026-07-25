@@ -87,7 +87,7 @@ describe('compileDifyGraphToAgentNetworkPseudocode', () => {
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'NORMALIZED_SKILLS' }))
   })
 
-  it('blocks export and reports unsupported nodes instead of silently removing them', () => {
+  it('exports Code nodes instead of silently removing them', () => {
     const graph = compileAgentNetworkPseudocode(
       'answer = ReviewGroup(task=task)\nfinal_result = answer',
       { model },
@@ -98,15 +98,15 @@ describe('compileDifyGraphToAgentNetworkPseudocode', () => {
 
     const result = compileDifyGraphToAgentNetworkPseudocode(graph)
 
-    expect(result.source).toBeNull()
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+    expect(result.source).toContain('answer = CodeExecution(')
+    expect(result.source).toContain('final_result = answer.get("text")')
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
       severity: 'error',
-      code: 'UNSUPPORTED_NODE',
       nodeId: 'reviewgroup',
     }))
   })
 
-  it('keeps Group optional and falls back to the node title during export', () => {
+  it('exports a native LLM when no AgentNetwork Group is selected', () => {
     const graph = compileAgentNetworkPseudocode(
       'answer = SearchGroup(task=task)\nfinal_result = answer',
       { model },
@@ -117,8 +117,9 @@ describe('compileDifyGraphToAgentNetworkPseudocode', () => {
 
     const result = compileDifyGraphToAgentNetworkPseudocode(graph)
 
-    expect(result.source).toContain('answer = Llm3Group(')
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+    expect(result.source).toContain('answer = LLM(')
+    expect(result.source).toContain('model="test-model",')
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({
       code: 'NORMALIZED_FUNCTION_NAME',
       nodeId: 'searchgroup',
     }))
