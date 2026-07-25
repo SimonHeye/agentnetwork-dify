@@ -4,10 +4,12 @@ import { isSameOriginRequest } from '../same-origin'
 const requestSchema = z.object({
   appId: z.string().min(1).max(128),
   task: z.string().trim().min(1).max(100_000),
+  includeAgents: z.boolean().optional().default(false),
+  model: z.string().trim().min(1).max(200).optional(),
+  extraInstructions: z.string().trim().min(1).max(100_000).optional(),
 }).strict()
 
 const agentNetworkResponseSchema = z.object({
-  request_id: z.string().min(1).max(256).optional(),
   pseudocode: z.string().trim().min(1).max(1_000_000),
 }).passthrough()
 
@@ -27,14 +29,12 @@ export async function POST(request: Request) {
   if (!planUrl)
     return json({ code: 'AGENT_NETWORK_NOT_CONFIGURED' }, 503)
 
-  const requestId = crypto.randomUUID()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Dify-Request-Id': requestId,
   }
   const apiKey = (
     process.env.AGENT_NETWORK_PLAN_API_KEY
-    || process.env.AGENT_NETWORK_PSEUDOCODE_API_KEY
+    || process.env.AGENT_NETWORK_API_KEY
   )?.trim()
   if (apiKey)
     headers.Authorization = `Bearer ${apiKey}`
@@ -44,23 +44,24 @@ export async function POST(request: Request) {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        schema_version: '1.0',
-        request_id: requestId,
-        app_id: input.data.appId,
         task: input.data.task,
+        include_agents: input.data.includeAgents,
+        ...(input.data.model ? { model: input.data.model } : {}),
+        ...(input.data.extraInstructions ? { extra_instructions: input.data.extraInstructions } : {}),
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(resolveTimeout()),
     })
-    if (!response.ok)
-      return json({ code: 'AGENT_NETWORK_REJECTED' }, 502)
+    if (!response.ok) {
+      const message = await readErrorMessage(response)
+      return json({ code: 'AGENT_NETWORK_REJECTED', ...(message ? { message } : {}) }, 502)
+    }
 
     const result = agentNetworkResponseSchema.safeParse(await readJson(response))
     if (!result.success)
       return json({ code: 'AGENT_NETWORK_INVALID_RESPONSE' }, 502)
 
     return Response.json({
-      request_id: result.data.request_id || requestId,
       pseudocode: result.data.pseudocode,
     }, {
       status: 200,
@@ -81,6 +82,16 @@ async function readJson(request: Request | Response): Promise<unknown> {
   }
 }
 
+
+async function readErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const message = (await response.text()).trim()
+    return message ? message.slice(0, 10_000) : null
+  }
+  catch {
+    return null
+  }
+}
 function resolveHttpUrl(value: string | undefined): string | null {
   if (!value?.trim())
     return null

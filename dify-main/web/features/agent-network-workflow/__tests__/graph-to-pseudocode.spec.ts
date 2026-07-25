@@ -1,5 +1,6 @@
 import type { Edge, Node, WorkflowDataUpdater } from '@/app/components/workflow/types'
 import { BlockEnum } from '@/app/components/workflow/types'
+import { compileAgentNetworkPseudocode } from '../compiler'
 import {
   AGENT_NETWORK_PSEUDOCODE_NODE_SUPPORT,
   compileAllDifyNodesToAgentNetworkPseudocode,
@@ -572,6 +573,11 @@ describe('all-node graph to pseudocode contracts', () => {
     expect(iterationResult.source).toContain('final_result = answer')
     expect(iterationResult.source).not.toContain('answer.get("output")')
     expect(iterationResult.source).not.toContain('while ')
+    const iterationRoundTrip = compileAgentNetworkPseudocode(iterationResult.source!)
+    expect(iterationRoundTrip.graph.nodes.filter(node => node.data.type === BlockEnum.Iteration)).toHaveLength(1)
+    expect(iterationRoundTrip.graph.nodes.filter(node => node.data.type === BlockEnum.Code)).toHaveLength(1)
+    expect(iterationRoundTrip.graph.nodes.find(node => node.data.type === BlockEnum.Code)?.parentId)
+      .toBe(iterationRoundTrip.graph.nodes.find(node => node.data.type === BlockEnum.Iteration)?.id)
 
     const loopGraph = makeGraph(
       [
@@ -619,6 +625,11 @@ describe('all-node graph to pseudocode contracts', () => {
     expect(loopResult.source).toContain('final_result = counter')
     expect(loopResult.source).not.toContain('counter = {')
     expect(loopResult.source).not.toContain('while ')
+    const loopRoundTrip = compileAgentNetworkPseudocode(loopResult.source!)
+    expect(loopRoundTrip.graph.nodes.filter(node => node.data.type === BlockEnum.Loop)).toHaveLength(1)
+    expect(loopRoundTrip.graph.nodes.filter(node => node.data.type === BlockEnum.Code)).toHaveLength(1)
+    expect(loopRoundTrip.graph.nodes.find(node => node.data.type === BlockEnum.Code)?.parentId)
+      .toBe(loopRoundTrip.graph.nodes.find(node => node.data.type === BlockEnum.Loop)?.id)
   })
 
   it('exports parallel Iteration, explicit LoopEnd, retry, default, and fail branches', () => {
@@ -650,9 +661,10 @@ describe('all-node graph to pseudocode contracts', () => {
       ],
     )
     const parallelResult = compileAllDifyNodesToAgentNetworkPseudocode(parallelGraph)
-    expect(parallelResult.source).toContain('def _iteration_body(')
-    expect(parallelResult.source).toContain('answer = parallel_map(')
-    expect(parallelResult.source).toContain('max_workers=4')
+    expect(parallelResult.source).toContain('for iteration_index, iteration_item in enumerate(task):')
+    expect(parallelResult.source).not.toContain('def ')
+    expect(parallelResult.source).not.toContain('parallel_map(')
+    expect(parallelResult.diagnostics).toContainEqual(expect.objectContaining({ code: 'PARALLEL_ITERATION_SERIALIZED' }))
 
     const loopEndGraph = makeGraph(
       [

@@ -6,6 +6,9 @@ export type ParsedValue
   = | { expr: 'var', name: string, raw: string, refs: string[] }
     | { expr: 'const', value: string | number | boolean | null, valueType: 'str' | 'int' | 'float' | 'bool' | 'null', raw: string, refs: string[] }
     | { expr: 'template', parts: Array<{ text: string } | { var: string } | { rawExpression: string }>, raw: string, refs: string[] }
+    | { expr: 'list', items: ParsedValue[], raw: string, refs: string[] }
+    | { expr: 'dict', entries: Record<string, ParsedValue>, raw: string, refs: string[] }
+    | { expr: 'access', variable: string, key: string, raw: string, refs: string[] }
     | { expr: 'raw', raw: string, refs: string[] }
 
 export type ParsedComparison = {
@@ -35,6 +38,10 @@ export type ParsedStatement
     | { kind: 'assign', target: string, value: ParsedValue, line: number }
     | { kind: 'call', call: ParsedCall, line: number }
     | { kind: 'if', cases: Array<{ condition: ParsedCondition, body: ParsedStatement[], line: number }>, elseBody: ParsedStatement[], line: number }
+    | { kind: 'for', targets: string[], iterator: ParsedCall, body: ParsedStatement[], line: number }
+    | { kind: 'while', condition: ParsedCondition, body: ParsedStatement[], line: number }
+    | { kind: 'append', target: string, value: ParsedValue, line: number }
+    | { kind: 'break', line: number }
     | { kind: 'return', value: ParsedValue | null, line: number }
 
 export class AgentNetworkSyntaxError extends Error {
@@ -83,6 +90,18 @@ class PythonSubsetParser {
         return this.parseIf(node)
       case 'ReturnStatement':
         return this.parseReturn(node)
+      case 'ImportStatement':
+        throw this.error(node, 'import is forbidden by the AgentNetwork pseudocode contract')
+      case 'FunctionDefinition':
+        throw this.error(node, 'def is forbidden by the AgentNetwork pseudocode contract')
+      case 'ClassDefinition':
+        throw this.error(node, 'class is forbidden by the AgentNetwork pseudocode contract')
+      case 'ForStatement':
+        return this.parseFor(node)
+      case 'WhileStatement':
+        return this.parseWhile(node)
+      case 'BreakStatement':
+        return { kind: 'break', line: this.line(node.from) }
       default:
         throw this.error(node, `Unsupported statement type ${node.name}`)
     }
@@ -115,9 +134,44 @@ class PythonSubsetParser {
   private parseExpressionStatement(node: SyntaxNode): ParsedStatement {
     const expression = this.children(node)[0]
     const call = expression && this.tryParseDirectCall(expression)
-    if (!call)
-      throw this.error(node, 'Only direct function calls are supported as standalone expressions')
-    return { kind: 'call', call, line: this.line(node.from) }
+    if (call)
+      return { kind: 'call', call, line: this.line(node.from) }
+    const append = expression && this.tryParseAppend(expression)
+    if (append)
+      return { kind: 'append', ...append, line: this.line(node.from) }
+    throw this.error(node, 'Only direct function calls and list append are supported as standalone expressions')
+  }
+
+  private parseFor(node: SyntaxNode): ParsedStatement {
+    const children = this.children(node)
+    const inIndex = children.findIndex(child => child.name === 'in')
+    const bodyNode = children.at(-1)
+    if (inIndex < 2 || bodyNode?.name !== 'Body')
+      throw this.error(node, 'Invalid for statement structure')
+    const targets = children.slice(1, inIndex)
+      .filter(child => child.name !== ',')
+      .map((child) => {
+        if (child.name !== 'VariableName')
+          throw this.error(child, 'For targets must be simple variables')
+        return this.text(child)
+      })
+    const iteratorNode = children[inIndex + 1]
+    const iterator = iteratorNode && this.tryParseDirectCall(iteratorNode)
+    if (!iterator || !['enumerate', 'range'].includes(iterator.functionName))
+      throw this.error(iteratorNode ?? node, 'For loops must use enumerate(...) or range(...)')
+    return { kind: 'for', targets, iterator, body: this.parseBody(bodyNode), line: this.line(node.from) }
+  }
+
+  private parseWhile(node: SyntaxNode): ParsedStatement {
+    const children = this.children(node)
+    const conditionNode = children[1]
+    const bodyNode = children[2]
+    if (!conditionNode || bodyNode?.name !== 'Body')
+      throw this.error(node, 'Invalid while statement structure')
+    const condition = this.parseCondition(conditionNode)
+    if (!condition.parsed)
+      throw this.error(conditionNode, `While condition cannot be represented safely: ${condition.raw}`)
+    return { kind: 'while', condition, body: this.parseBody(bodyNode), line: this.line(node.from) }
   }
 
   private parseIf(node: SyntaxNode): ParsedStatement {
@@ -196,6 +250,29 @@ class PythonSubsetParser {
     return { functionName: this.text(callee), args, kwargs }
   }
 
+  private tryParseAppend(node: SyntaxNode): { target: string, value: ParsedValue } | null {
+    if (node.name !== 'CallExpression')
+      return null
+    const [callee, argumentList] = this.children(node)
+    if (callee?.name !== 'MemberExpression' || argumentList?.name !== 'ArgList')
+      return null
+    const memberChildren = this.children(callee)
+    if (
+      memberChildren[0]?.name !== 'VariableName'
+      || memberChildren[2]?.name !== 'PropertyName'
+      || this.text(memberChildren[2]) !== 'append'
+    ) {
+      return null
+    }
+    const segments = this.argumentSegments(argumentList)
+    if (segments.length !== 1 || segments[0]?.length !== 1)
+      throw this.error(argumentList, 'append requires exactly one value')
+    return {
+      target: this.text(memberChildren[0]),
+      value: this.parseValue(segments[0][0]!),
+    }
+  }
+
   private argumentSegments(node: SyntaxNode): SyntaxNode[][] {
     const segments: SyntaxNode[][] = []
     let segment: SyntaxNode[] = []
@@ -230,6 +307,18 @@ class PythonSubsetParser {
         return this.parseFormatString(node)
       case 'ContinuedString':
         return this.parseContinuedString(node)
+      case 'ArrayExpression': {
+        const items = this.children(node)
+          .filter(child => child.name !== '[' && child.name !== ']' && child.name !== ',')
+          .map(child => this.parseValue(child))
+        return { expr: 'list', items, raw, refs: unique(items.flatMap(item => item.refs)) }
+      }
+      case 'DictionaryExpression':
+        return this.parseDictionary(node)
+      case 'CallExpression':
+        return this.parseAccess(node) ?? { expr: 'raw', raw, refs: this.collectReferences(node) }
+      case 'UnaryExpression':
+        return this.parseUnaryNumber(node)
       case 'Number':
         return this.parseNumber(node)
       case 'Boolean':
@@ -238,6 +327,67 @@ class PythonSubsetParser {
         return { expr: 'const', value: null, valueType: 'null', raw, refs: [] }
       default:
         return { expr: 'raw', raw, refs: this.collectReferences(node) }
+    }
+  }
+
+  private parseDictionary(node: SyntaxNode): ParsedValue {
+    const children = this.children(node).filter(child => !['{', '}', ','].includes(child.name))
+    const entries: Record<string, ParsedValue> = {}
+    for (let index = 0; index < children.length;) {
+      const keyNode = children[index]
+      const separator = children[index + 1]
+      const valueNode = children[index + 2]
+      if (!keyNode || separator?.name !== ':' || !valueNode)
+        throw this.error(node, 'Dictionary entries must be key/value pairs')
+      if (keyNode.name !== 'String')
+        throw this.error(keyNode, 'Dictionary keys must be strings')
+      const key = this.decodeString(keyNode)
+      if (key === null)
+        throw this.error(keyNode, 'Dictionary key must be a plain string')
+      entries[key] = this.parseValue(valueNode)
+      index += 3
+    }
+    return {
+      expr: 'dict',
+      entries,
+      raw: this.text(node),
+      refs: unique(Object.values(entries).flatMap(value => value.refs)),
+    }
+  }
+
+  private parseAccess(node: SyntaxNode): ParsedValue | null {
+    const [callee, argumentList] = this.children(node)
+    if (callee?.name !== 'MemberExpression' || argumentList?.name !== 'ArgList')
+      return null
+    const memberChildren = this.children(callee)
+    if (
+      memberChildren[0]?.name !== 'VariableName'
+      || memberChildren[2]?.name !== 'PropertyName'
+      || this.text(memberChildren[2]) !== 'get'
+    ) {
+      return null
+    }
+    const segments = this.argumentSegments(argumentList)
+    if (segments.length !== 1 || segments[0]?.length !== 1 || segments[0][0]?.name !== 'String')
+      return null
+    const key = this.decodeString(segments[0][0])
+    if (key === null)
+      return null
+    const variable = this.text(memberChildren[0])
+    return { expr: 'access', variable, key, raw: this.text(node), refs: [variable] }
+  }
+
+  private parseUnaryNumber(node: SyntaxNode): ParsedValue {
+    const [operator, number] = this.children(node)
+    if (operator?.name !== 'ArithOp' || !['+', '-'].includes(this.text(operator)) || number?.name !== 'Number')
+      return { expr: 'raw', raw: this.text(node), refs: this.collectReferences(node) }
+    const parsed = this.parseNumber(number)
+    if (parsed.expr !== 'const' || typeof parsed.value !== 'number')
+      return { expr: 'raw', raw: this.text(node), refs: [] }
+    return {
+      ...parsed,
+      value: this.text(operator) === '-' ? -parsed.value : parsed.value,
+      raw: this.text(node),
     }
   }
 
@@ -549,6 +699,10 @@ class PythonSubsetParser {
   private error(node: SyntaxNode, message: string): AgentNetworkSyntaxError {
     return new AgentNetworkSyntaxError(message, this.line(node.from))
   }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
 }
 
 export function parseAgentNetworkPseudocode(source: string): ParsedStatement[] {

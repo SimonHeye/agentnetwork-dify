@@ -114,17 +114,66 @@ return answer
         { kind: 'return', value: null, line: 2 },
       ])
     })
+
+    it('should preserve canonical iteration and bounded loop structure', () => {
+      const statements = parseAgentNetworkPseudocode(`
+results = []
+for index, item in enumerate(task):
+    answer = SearchGroup(task=item)
+    results.append(answer.get("text"))
+for loop_index in range(5):
+    value = CalculatorGroup(task=task)
+    if value.get("result") >= 3:
+        break
+final_result = value.get("result")
+`)
+
+      expect(statements[1]).toMatchObject({
+        kind: 'for',
+        targets: ['index', 'item'],
+        iterator: { functionName: 'enumerate', args: [{ expr: 'var', name: 'task' }] },
+        body: [
+          { kind: 'assign-call', target: 'answer' },
+          { kind: 'append', target: 'results', value: { expr: 'access', variable: 'answer', key: 'text' } },
+        ],
+      })
+      expect(statements[2]).toMatchObject({
+        kind: 'for',
+        targets: ['loop_index'],
+        iterator: { functionName: 'range', args: [{ expr: 'const', value: 5 }] },
+        body: [
+          { kind: 'assign-call', target: 'value' },
+          { kind: 'if', cases: [{ body: [{ kind: 'break' }] }] },
+        ],
+      })
+      expect(statements[3]).toMatchObject({
+        kind: 'assign',
+        target: 'final_result',
+        value: { expr: 'access', variable: 'value', key: 'result' },
+      })
+    })
+
+    it('should parse while and nested collection arguments without executing them', () => {
+      const statements = parseAgentNetworkPseudocode(`
+while enabled:
+    answer = CodeExecution(inputs={"query": task}, language="python3", outputs={"result": {"type": "string"}})
+final_result = answer.get("result")
+`)
+
+      expect(statements[0]).toMatchObject({ kind: 'while', condition: { parsed: true } })
+      expect(statements[0]).toHaveProperty('body.0.call.kwargs.inputs.entries.query', { expr: 'var', name: 'task', raw: 'task', refs: ['task'] })
+      expect(statements[0]).toHaveProperty('body.0.call.kwargs.outputs.entries.result.expr', 'dict')
+    })
   })
 
   describe('Unsupported syntax', () => {
     it.each([
-      ['for item in items:\n    WorkGroup(task=item)', 'ForStatement'],
-      ['while enabled:\n    WorkGroup(task=task)', 'WhileStatement'],
-      ['class Flow:\n    pass', 'ClassDefinition'],
-    ])('should reject %s', (source, statementType) => {
-      expect(() => parseAgentNetworkPseudocode(source)).toThrow(
-        new RegExp(`Unsupported statement type ${statementType}`),
-      )
+      ['for item in items:\n    WorkGroup(task=item)', /must use enumerate.*or range/],
+      ['import json', /import is forbidden/],
+      ['def flow():\n    pass', /def is forbidden/],
+      ['class Flow:\n    pass', /class is forbidden/],
+    ])('should reject %s with a contract-specific error', (source, expected) => {
+      expect(() => parseAgentNetworkPseudocode(source)).toThrow(expected)
     })
 
     it('should reject chained assignments', () => {

@@ -15,10 +15,10 @@ function createRequest(body: unknown, origin = 'http://localhost') {
 
 describe('POST /internal/agent-network/plan', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubEnv('AGENT_NETWORK_PLAN_URL', 'http://127.0.0.1:8787/plan')
+    vi.stubEnv('AGENT_NETWORK_PLAN_URL', 'http://127.0.0.1:8787/service/plan_code')
     vi.stubEnv('AGENT_NETWORK_PLAN_API_KEY', 'local-test-token')
-    fetchMock.mockReset()
   })
 
   afterEach(() => {
@@ -26,45 +26,72 @@ describe('POST /internal/agent-network/plan', () => {
     vi.unstubAllEnvs()
   })
 
-  it('forwards the task to Agent Network and returns pseudocode', async () => {
+  it('should forward the documented plan_code request and return pseudocode', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      request_id: 'request-1',
       pseudocode: 'final_result = task',
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }))
 
-    const response = await POST(createRequest({ appId: 'app-1', task: 'Build a search workflow' }))
+    const response = await POST(createRequest({
+      appId: 'app-1',
+      task: 'Build a search workflow',
+      includeAgents: true,
+      model: 'deepseek-chat',
+      extraInstructions: 'Only use SearchGroup',
+    }))
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      request_id: 'request-1',
       pseudocode: 'final_result = task',
     })
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8787/plan', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8787/service/plan_code', expect.objectContaining({
       method: 'POST',
       headers: expect.objectContaining({
         'Authorization': 'Bearer local-test-token',
         'Content-Type': 'application/json',
       }),
+      body: JSON.stringify({
+        task: 'Build a search workflow',
+        include_agents: true,
+        model: 'deepseek-chat',
+        extra_instructions: 'Only use SearchGroup',
+      }),
     }))
-    const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
-    expect(requestBody).toMatchObject({
-      schema_version: '1.0',
-      app_id: 'app-1',
-      task: 'Build a search workflow',
-    })
   })
 
-  it('rejects cross-origin browser requests', async () => {
+  it('should send the documented include_agents default without inventing fields', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      pseudocode: 'final_result = task',
+    }), { status: 200 }))
+
+    await POST(createRequest({ appId: 'app-1', task: 'task' }))
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
+    expect(requestBody).toEqual({ task: 'task', include_agents: false })
+  })
+
+  it('should reject cross-origin browser requests', async () => {
     const response = await POST(createRequest({ appId: 'app-1', task: 'task' }, 'https://example.com'))
 
     expect(response.status).toBe(403)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('rejects an invalid Agent Network response', async () => {
+  it('should surface a non-2xx Agent Network error description', async () => {
+    fetchMock.mockResolvedValue(new Response('Planner model is unavailable', { status: 500 }))
+
+    const response = await POST(createRequest({ appId: 'app-1', task: 'task' }))
+
+    expect(response.status).toBe(502)
+    await expect(response.json()).resolves.toEqual({
+      code: 'AGENT_NETWORK_REJECTED',
+      message: 'Planner model is unavailable',
+    })
+  })
+
+  it('should reject an invalid Agent Network response', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'completed' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

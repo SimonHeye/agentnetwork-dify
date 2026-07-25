@@ -6,6 +6,7 @@ import { requestAgentNetworkPlan } from '../request-plan'
 const mockApplyPseudocode = vi.fn()
 const mockPush = vi.fn()
 
+const mockSetInitialTasks = vi.fn()
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => values ? `${key}:${JSON.stringify(values)}` : key,
@@ -35,11 +36,14 @@ vi.mock('../request-plan', () => ({
   requestAgentNetworkPlan: vi.fn(),
 }))
 
+vi.mock('../storage', () => ({
+  useAgentNetworkInitialTasks: () => [{}, mockSetInitialTasks],
+}))
+
 describe('AgentNetworkChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(requestAgentNetworkPlan).mockResolvedValue({
-      requestId: 'request-1',
       pseudocode: 'final_result = task',
     })
     mockApplyPseudocode.mockResolvedValue({
@@ -66,6 +70,12 @@ describe('AgentNetworkChatPanel', () => {
       })
     })
     expect(screen.getByText(/agentNetworkChat\.success/)).toBeInTheDocument()
+    expect(mockSetInitialTasks).toHaveBeenCalledTimes(1)
+    const update = mockSetInitialTasks.mock.calls[0]![0] as (
+      current: Record<string, { initialTask: string }>,
+    ) => Record<string, { initialTask: string }>
+    expect(update({})).toEqual({ 'app-1': { initialTask: 'Build a calculator workflow' } })
+    expect(update({ 'app-1': { initialTask: 'Original task' } })).toEqual({ 'app-1': { initialTask: 'Original task' } })
   })
 
   it('returns to the normal workflow page when closed', async () => {

@@ -1189,26 +1189,11 @@ class GraphToPseudocodeCompiler {
       ? data.error_handle_mode
       : 'terminated'
     if (parallel) {
-      const functionName = uniqueFunctionName(`_${snakeName(node.data.title) || 'iteration'}_body`, this.functionNames)
-      lines.push(`${padding(indent)}def ${functionName}(${itemName}, ${indexName}):`)
-      this.emitted.add(startNodeId)
-      const childTarget = this.singleSuccessor(startNode)
-      if (!childTarget)
-        lines.push(`${padding(indent + 1)}pass`)
-      else
-        this.emitSequence(childTarget, indent + 1, new Set(), lines, new Set([node.id, startNodeId]))
-      const output = this.renderSelector(data.output_selector, node.id)
-      lines.push(`${padding(indent + 1)}return ${output}`)
-      lines.push('')
-      lines.push(`${padding(indent)}${outputVariable} = parallel_map(`)
-      lines.push(`${padding(indent + 1)}${iterator},`)
-      lines.push(`${padding(indent + 1)}${functionName},`)
-      lines.push(`${padding(indent + 1)}max_workers=${pythonValue(data.parallel_nums)},`)
-      lines.push(`${padding(indent + 1)}on_error=${pythonString(errorMode)},`)
-      lines.push(`${padding(indent + 1)}flatten=${pythonValue(data.flatten_output)},`)
-      lines.push(`${padding(indent)})`)
-      lines.push('')
-      return
+      this.warn(
+        'PARALLEL_ITERATION_SERIALIZED',
+        `Parallel iteration ${node.data.title} was exported as a sequential for loop because AgentNetwork forbids function definitions`,
+        node.id,
+      )
     }
 
     lines.push(`${padding(indent)}${outputVariable} = []`)
@@ -1447,15 +1432,18 @@ class GraphToPseudocodeCompiler {
     const entries = Object.entries(asRecord(value)).map(([name, rawInput]) => {
       const input = asRecord(rawInput)
       let rendered: string
-      if (input.type === 'variable')
+      if (input.type === 'variable') {
         rendered = this.renderSelector(input.value, nodeId)
+      }
       else if (
         input.type === 'mixed'
         || (typeof input.value === 'string' && input.value.includes('{{#'))
-      )
+      ) {
         rendered = this.renderTemplateText(input.value, nodeId)
-      else
+      }
+      else {
         rendered = pythonValue(input.value)
+      }
       return `${pythonString(name)}: ${rendered}`
     })
     return `{${entries.join(', ')}}`
@@ -1526,7 +1514,7 @@ class GraphToPseudocodeCompiler {
     if (source.data.type === BlockEnum.LLM) {
       const isGroup = isConfiguredAgentNetworkGroup(asRecord(source.data).agent_network_group)
       if (isGroup && (path[0] === 'text' || path[0] === 'structured_output' || path.length === 0))
-        return appendSelectorPath(variable, path.slice(path.length ? 1 : 0))
+        return variable
       return appendSelectorPath(variable, path)
     }
     return appendSelectorPath(variable, path)
@@ -1988,10 +1976,6 @@ function uniqueName(base: string, used: Set<string>): string {
 
 function uniqueScopedName(base: string, variables: Map<string, string>): string {
   return uniqueName(base, new Set(variables.values()))
-}
-
-function uniqueFunctionName(base: string, functions: Map<string, string>): string {
-  return uniqueName(base, new Set(functions.values()))
 }
 
 function safeVariableName(value: string, used: Set<string>): string {

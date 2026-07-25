@@ -9,6 +9,7 @@ import { useStore as useAppStore } from '@/app/components/app/store'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
 import { usePathname, useRouter } from '@/next/navigation'
 import { requestAgentNetworkPlan } from './request-plan'
+import { useAgentNetworkInitialTasks } from './storage'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type Message = {
@@ -26,6 +27,7 @@ export function AgentNetworkChatPanel() {
   const appId = useAppStore(state => state.appDetail?.id)
   const { nodesReadOnly } = useNodesReadOnly()
   const { applyPseudocode } = useAgentNetworkWorkflow()
+  const [, setInitialTasks] = useAgentNetworkInitialTasks()
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -67,6 +69,10 @@ export function AgentNetworkChatPanel() {
 
     try {
       const plan = await requestAgentNetworkPlan({ appId, task })
+      setInitialTasks(current => current?.[appId]?.initialTask
+        ? current
+        : { ...(current ?? {}), [appId]: { initialTask: task } })
+
       setMessages(current => current.map(message => message.id === assistantMessageId
         ? { ...message, content: t('agentNetworkChat.applying'), pseudocode: plan.pseudocode }
         : message))

@@ -201,6 +201,164 @@ final_result = answer
       expect(nodesById(result).echogroup?.data.model).toEqual(model)
     })
 
+    it('should compile the reverse CodeExecution contract back into a Code node', () => {
+      const result = compileAgentNetworkPseudocode(`
+answer = CodeExecution(
+    inputs={"query": task},
+    language="python3",
+    code="def main(query):\\n    return {\\\"result\\\": query.upper()}",
+    outputs={"result": {"type": "string"}},
+)
+final_result = answer.get("result")
+`)
+      const nodes = nodesById(result)
+
+      expect(nodes.codeexecution?.data).toMatchObject({
+        type: 'code',
+        code_language: 'python3',
+        variables: [{ variable: 'query', value_selector: ['start', 'task'] }],
+        outputs: { result: { type: 'string', children: null } },
+      })
+      expect(nodes.terminal_1?.data.outputs[0]).toEqual({
+        variable: 'final_result',
+        value_selector: ['codeexecution', 'result'],
+        value_type: 'string',
+      })
+    })
+
+    it('should compile reply into an Answer node instead of an End node', () => {
+      const result = compileAgentNetworkPseudocode(`
+answer = EchoGroup(task=task)
+reply(f"Result: {answer}")
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.terminal_1?.data).toMatchObject({
+        type: 'answer',
+        answer: 'Result: {{#echogroup.text#}}',
+      })
+      expect(nodes.terminal_1?.data.outputs).toBeUndefined()
+    })
+
+    it('should compile canonical enumerate syntax into an Iteration container', () => {
+      const result = compileAgentNetworkPseudocode(`
+results = []
+for iteration_index, iteration_item in enumerate(items):
+    answer = EchoGroup(task=iteration_item)
+    results.append(answer)
+final_result = results
+`, { model, inputTypes: { items: 'paragraph' } })
+      const nodes = nodesById(result)
+      const iteration = nodes.iteration_1
+      const child = nodes.echogroup
+
+      expect(iteration?.data).toMatchObject({
+        type: 'iteration',
+        iterator_selector: ['start', 'items'],
+        output_selector: ['echogroup', 'text'],
+        start_node_id: 'iteration_1_start',
+        is_parallel: false,
+      })
+      expect(nodes.iteration_1_start?.type).toBe('custom-iteration-start')
+      expect(nodes.iteration_1_start?.parentId).toBe('iteration_1')
+      expect(child?.parentId).toBe('iteration_1')
+      expect(child?.data.prompt_template[0]?.text).toBe('{{#iteration_1.item#}}')
+      expect(edgeKeys(result)).toEqual(new Set([
+        'start:source->iteration_1:target',
+        'iteration_1_start:source->echogroup:target',
+        'iteration_1:source->terminal_1:target',
+      ]))
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['iteration_1', 'output'])
+    })
+
+    it('should compile bounded range and break into a Loop container', () => {
+      const result = compileAgentNetworkPseudocode(`
+counter = 0
+for loop_index in range(5):
+    EchoGroup(task=task)
+    if counter >= 3:
+        break
+final_result = counter
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.loop_1?.data).toMatchObject({
+        type: 'loop',
+        loop_count: 5,
+        start_node_id: 'loop_1_start',
+        loop_variables: [{
+          id: 'counter',
+          label: 'counter',
+          var_type: 'number',
+          value_type: 'constant',
+          value: 0,
+        }],
+        break_conditions: [{
+          variable_selector: ['loop_1', 'counter'],
+          value: '3',
+        }],
+      })
+      expect(nodes.loop_1_start?.type).toBe('custom-loop-start')
+      expect(nodes.echogroup?.parentId).toBe('loop_1')
+      expect(edgeKeys(result)).toContain('loop_1_start:source->echogroup:target')
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['loop_1', 'counter'])
+    })
+
+    it('should map while to a bounded Loop with the inverse stop condition', () => {
+      const result = compileAgentNetworkPseudocode(`
+while enabled:
+    EchoGroup(task=task)
+final_result = task
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.loop_1?.data).toMatchObject({
+        type: 'loop',
+        loop_count: 100,
+        break_conditions: [{
+          variable_selector: ['start', 'enabled'],
+          comparison_operator: 'empty',
+        }],
+      })
+      expect(result.warnings).toContain('Line 2: while was mapped to a Dify Loop with a safety limit of 100 iterations')
+    })
+
+    it('should compile the comprehensive mock plan using only supported AgentNetwork Groups', () => {
+      const result = compileAgentNetworkPseudocode(`
+kind = ReasoningGroup(task=f"Classify the request: {task}")
+if kind == "calc":
+    for calc_check_index in range(1):
+        calc_check = ReasoningGroup(task=f"Verify calculation: {task}")
+    while kind == "calc":
+        calc_confirmation = ReasoningGroup(task=f"Confirm calculation: {task}")
+        break
+    answer = CalculatorGroup(task=task)
+else:
+    for search_check_index in range(1):
+        search_check = ReasoningGroup(task=f"Verify search: {task}")
+    while kind == "search":
+        search_confirmation = ReasoningGroup(task=f"Confirm search: {task}")
+        break
+    answer = SearchGroup(task=task)
+final_result = answer
+`, { model })
+      const groupNames = result.graph.nodes.flatMap((node) => {
+        const group = (node.data as Record<string, unknown>).agent_network_group
+        return typeof group === 'string' ? [group] : []
+      })
+
+      expect(result.graph.nodes.filter(node => node.data.type === 'loop')).toHaveLength(4)
+      expect(new Set(groupNames)).toEqual(new Set([
+        'ReasoningGroup',
+        'CalculatorGroup',
+        'SearchGroup',
+      ]))
+      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(2)
+      expect(result.warnings).toEqual(expect.arrayContaining([
+        expect.stringContaining('one-iteration Dify Loop'),
+      ]))
+    })
+
     it('should resolve input aliases and local constants in prompts', () => {
       const result = compileAgentNetworkPseudocode(`
 task_alias = task

@@ -18,6 +18,35 @@ function AgentNetworkCaller() {
 
 The app sidebar Chat entry renders the same `WorkflowApp` and opens the Agent Network conversation panel inside the workflow React tree. It calls `applyPseudocode` directly and does not expose a browser `window` API.
 
+## AgentNetwork HTTP Contract
+
+Planning uses `POST /service/plan_code`. Dify sends the user's task through the same-origin `/internal/agent-network/plan` proxy:
+
+```json
+{
+  "task": "the user's original task"
+}
+```
+
+The browser receives `{ "pseudocode": "..." }`, compiles it to `workflow.graph`, saves the draft, and renders it on the open canvas.
+
+Execution uses `POST /service/execute_code` through `/internal/agent-network/pseudocode`:
+
+```json
+{
+  "task": "the task selected by the Dify execution task resolver",
+  "code": "the latest pseudocode reverse-compiled from the canvas",
+  "params": {},
+  "need_task": false,
+  "need_match": false,
+  "include_agents": true
+}
+```
+
+For the current demo, the resolver reuses the first successfully planned task for the app. `resolve-execute-task.ts` is the single extension point for changing that policy later.
+
+Successful execution displays `final_result.value` when present and keeps the full `context`, `trace`, and `calls` response. Non-2xx plain-text responses from AgentNetwork are surfaced to the user.
+
 ## Reverse Delivery
 
 The workflow header opens a read-only preview containing generated pseudocode and compiler diagnostics. It intentionally has no clipboard or download action.
@@ -35,17 +64,17 @@ Opening the preview and saving the draft never send data. If reverse compilation
 Delivery uses two hops:
 
 1. The browser posts the latest saved pseudocode to `/internal/agent-network/pseudocode` on the same Dify origin.
-1. The Next.js server route validates the payload and forwards a versioned event to the configured Agent Network receiver.
+1. The Next.js server route validates the payload and forwards the official `task + code` request to `/service/execute_code`.
 
 The receiver URL and token are server-only environment variables:
 
 ```text
-AGENT_NETWORK_PSEUDOCODE_URL=http://127.0.0.1:8787/pseudocode
-AGENT_NETWORK_PSEUDOCODE_API_KEY=local-test-token
-AGENT_NETWORK_PSEUDOCODE_TIMEOUT_MS=10000
+AGENT_NETWORK_EXECUTE_URL=http://127.0.0.1:8787/service/execute_code
+AGENT_NETWORK_EXECUTE_API_KEY=
+AGENT_NETWORK_EXECUTE_TIMEOUT_MS=120000
 ```
 
-The outbound body is JSON with `schema_version`, `event`, `delivery_id`, `sent_at`, `app`, `pseudocode`, `diagnostics`, and `stats`. The current contract version is `1.0`, and the event name is `dify.workflow.pseudocode.generated`.
+The browser keeps Dify diagnostics and graph statistics locally; AgentNetwork receives only the fields defined by `/service/execute_code`.
 
 For the standalone local planner and execution receiver, run from the repository root:
 
@@ -81,12 +110,40 @@ An LLM is emitted as an Agent Network group only when
 `Group`. Otherwise it is emitted as native `LLM(...)`. This keeps future group
 names round-trippable without misclassifying ordinary Dify LLM nodes.
 
+Configured `*Group` calls follow AgentNetwork scalar semantics. Dify selectors for a Group's `text` or `structured_output` are emitted as the assigned scalar variable, so a branch is written as `if kind == "calc":` rather than `if kind.get("kind") == "calc":`.
+
+Generated executable pseudocode follows the AgentNetwork restrictions:
+
+- Group calls use keyword arguments and describe work through `task`.
+- Branches use assignments, comparisons, f-strings, and `if`/`elif`/`else`.
+- Iteration and Loop export as bounded `for` statements. Parallel Dify Iteration is serialized and produces a `PARALLEL_ITERATION_SERIALIZED` diagnostic because AgentNetwork forbids `def`.
+- The generator emits no `import`, `def`, or `class`, and terminal output is assigned to `final_result`.
+
+The plan-to-canvas compiler closes the canonical round trip for the structural
+nodes used by this integration:
+
+- selected `*Group(...)` calls become configured LLM nodes;
+- `CodeExecution(...)` becomes a Code node and preserves named outputs;
+- `if`/`elif`/`else` becomes If/Else;
+- `reply(...)` becomes Answer and `final_result` becomes End;
+- `for index, item in enumerate(value)` plus a final accumulator `append`
+  becomes Iteration;
+- `for index in range(count)` plus an optional final `if ...: break` becomes
+  a bounded Loop;
+- incoming `while condition` becomes a Loop with the inverse break condition
+  and emits a bounded-conversion warning. A terminal `break` maps to one
+  iteration; otherwise the safety limit is 100 iterations.
+
+The Iteration and Loop forms emitted by the reverse compiler are covered by
+Graph-to-pseudocode-to-Graph tests. Arbitrary Python loop iterators and loop
+bodies that cannot be represented by Dify selectors remain explicit errors.
+
 End keeps the Agent Network top-level output convention:
 
 - one output: `final_result = expression`
 - multiple outputs: `final_result = {"name": expression, ...}`
 
-## HTTP Demo
+## Legacy Inbound HTTP Demo
 
 The web service exposes a demo endpoint that compiles pseudocode on the Next.js server and queues the resulting graph for an open workflow editor. The editor polls for compiled graphs and applies them directly through `useAgentNetworkWorkflow`; this path does not use the browser `window` bridge.
 
@@ -103,7 +160,7 @@ Authorization: Bearer <AGENT_NETWORK_API_KEY>
 ```json
 {
   "app_id": "replace-with-the-open-app-id",
-  "source": "probe = ReasoningGroup(task=task)\nif probe.get(\"kind\") == \"calc\":\n    answer = CalculatorGroup(task=task)\nelse:\n    answer = SearchGroup(task=task)\nfinal_result = answer",
+  "source": "kind = ReasoningGroup(task=task)\nif kind == \"calc\":\n    answer = CalculatorGroup(task=task)\nelse:\n    answer = SearchGroup(task=task)\nfinal_result = answer",
   "preserve_positions": true,
   "save_draft": true
 }
@@ -134,14 +191,12 @@ const DEFAULT_MODEL = {
 
 - `compiler`
 - `compiler-helpers`
-- `bridge`
 - `command-client`
 - `command-consumer`
 - `command-store`
 - `constants`
 - `graph-to-pseudocode`
 - `reverse-compiler`
-- `send-pseudocode`
 - `python-syntax`
 - `types`
 - `use-agent-network-workflow`

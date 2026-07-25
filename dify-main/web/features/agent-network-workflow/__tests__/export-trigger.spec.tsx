@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AgentNetworkPseudocodeTrigger } from '../export-trigger'
 
 const mockExportPseudocode = vi.hoisted(() => vi.fn())
-const mockSendPseudocode = vi.hoisted(() => vi.fn())
+const mockExecuteCode = vi.hoisted(() => vi.fn())
 const mockDoSyncWorkflowDraft = vi.hoisted(() => vi.fn())
 const mockToastSuccess = vi.hoisted(() => vi.fn())
 const mockToastError = vi.hoisted(() => vi.fn())
@@ -23,8 +23,12 @@ vi.mock('../use-agent-network-workflow', () => ({
   useAgentNetworkWorkflow: () => ({ exportPseudocode: mockExportPseudocode }),
 }))
 
-vi.mock('../send-pseudocode', () => ({
-  sendPseudocodeToAgentNetwork: mockSendPseudocode,
+vi.mock('../execute-code', () => ({
+  executeAgentNetworkCode: mockExecuteCode,
+}))
+
+vi.mock('../storage', () => ({
+  useAgentNetworkInitialTasks: () => [{ 'app-123': { initialTask: 'Original task' } }, vi.fn()],
 }))
 
 const result = {
@@ -43,7 +47,12 @@ describe('AgentNetworkPseudocodeTrigger', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockExportPseudocode.mockReturnValue(result)
-    mockSendPseudocode.mockResolvedValue({ deliveryId: 'delivery-123' })
+    mockExecuteCode.mockResolvedValue({
+      finalResult: { value: 'done', raw: { answer: 'raw' } },
+      context: {},
+      trace: [{ identifier: 'SearchGroup', vertex: 'SearchGroup', params: {}, scalar: 'done' }],
+      calls: 1,
+    })
     mockDoSyncWorkflowDraft.mockImplementation(async (
       _notRefreshWhenSyncError: boolean | undefined,
       callback?: { onSuccess?: () => void },
@@ -59,7 +68,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     expect(screen.getByText(/Generated answer/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /copy|download/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Agent Network/i })).not.toBeInTheDocument()
-    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
   })
 
   it('should save the draft without sending pseudocode', async () => {
@@ -68,7 +77,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
 
     await waitFor(() => expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1))
     expect(mockExportPseudocode).not.toHaveBeenCalled()
-    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
     expect(mockToastSuccess).toHaveBeenCalledWith('common.api.saved')
   })
 
@@ -77,21 +86,24 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
 
     await waitFor(() => expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(mockSendPseudocode).toHaveBeenCalledWith({
-      appId: 'app-123',
-      appName: 'Routing demo',
-      pseudocode: result.source,
-      diagnostics: result.diagnostics,
-      stats: result.stats,
+    await waitFor(() => expect(mockExecuteCode).toHaveBeenCalledWith({
+      task: 'Original task',
+      code: result.source,
+      params: {},
+      need_task: false,
+      need_match: false,
+      include_agents: true,
     }))
     const saveCallOrder = mockDoSyncWorkflowDraft.mock.invocationCallOrder.at(0)
-    const sendCallOrder = mockSendPseudocode.mock.invocationCallOrder.at(0)
+    const sendCallOrder = mockExecuteCode.mock.invocationCallOrder.at(0)
     expect(saveCallOrder).toBeDefined()
     expect(sendCallOrder).toBeDefined()
     if (saveCallOrder === undefined || sendCallOrder === undefined)
       throw new Error('Expected both save and delivery calls')
     expect(saveCallOrder).toBeLessThan(sendCallOrder)
-    expect(mockToastSuccess).toHaveBeenCalledWith('common.api.success')
+    expect(mockToastSuccess).toHaveBeenCalledWith('done')
+    expect(await screen.findByText('final_result')).toBeInTheDocument()
+    expect(screen.getByText('SearchGroup')).toBeInTheDocument()
   })
 
   it('should not send when saving the Dify draft fails', async () => {
@@ -105,7 +117,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('common.api.actionFailed'))
     expect(mockExportPseudocode).not.toHaveBeenCalled()
-    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
   })
 
   it('should not execute when saving the Dify draft fails', async () => {
@@ -119,7 +131,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('common.api.actionFailed'))
     expect(mockExportPseudocode).not.toHaveBeenCalled()
-    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
   })
 
   it('should show diagnostics and not send when reverse compilation fails', async () => {
@@ -133,6 +145,26 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
 
     expect(await screen.findByText('Unsupported node')).toBeInTheDocument()
-    expect(mockSendPseudocode).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
+  })
+  it('should require a successful initial plan before execution', async () => {
+    render(<AgentNetworkPseudocodeTrigger appId="app-missing" workflowName="Routing demo" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
+
+    expect(mockToastError).toHaveBeenCalledWith('common.agentNetworkChat.initialTaskMissing')
+    expect(mockDoSyncWorkflowDraft).not.toHaveBeenCalled()
+    expect(mockExecuteCode).not.toHaveBeenCalled()
+  })
+
+  it('should display the execute_code error description', async () => {
+    mockExecuteCode.mockRejectedValue(new Error('NameError: name \'UnknownGroup\' is not defined'))
+    render(<AgentNetworkPseudocodeTrigger appId="app-123" workflowName="Routing demo" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith(
+      'NameError: name \'UnknownGroup\' is not defined',
+    ))
   })
 })

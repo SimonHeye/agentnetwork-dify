@@ -1,37 +1,43 @@
 import { basePath } from '@/utils/var'
 
 type PlanResponse = {
-  request_id?: unknown
   pseudocode?: unknown
   code?: unknown
+  message?: unknown
 }
 
 export type AgentNetworkPlanResult = {
-  requestId: string
   pseudocode: string
 }
 
 export async function requestAgentNetworkPlan(input: {
   appId: string
   task: string
+  includeAgents?: boolean
+  model?: string
+  extraInstructions?: string
 }): Promise<AgentNetworkPlanResult> {
   const response = await fetch(`${basePath}/internal/agent-network/plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      includeAgents: input.includeAgents ?? false,
+    }),
   })
   const body = await readResponse(response)
 
   if (!response.ok) {
-    const code = typeof body.code === 'string' ? body.code : 'AGENT_NETWORK_REQUEST_FAILED'
-    throw new Error(code)
+    const message = typeof body.message === 'string'
+      ? body.message
+      : typeof body.code === 'string' ? body.code : 'AGENT_NETWORK_REQUEST_FAILED'
+    throw new Error(message)
   }
-  if (typeof body.request_id !== 'string' || typeof body.pseudocode !== 'string')
+  if (typeof body.pseudocode !== 'string')
     throw new Error('AGENT_NETWORK_INVALID_RESPONSE')
 
   return {
-    requestId: body.request_id,
     pseudocode: body.pseudocode,
   }
 }

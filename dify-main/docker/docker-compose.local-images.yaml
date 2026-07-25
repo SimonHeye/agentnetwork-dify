@@ -1,0 +1,17 @@
+services:
+  api:
+    image: agentnetwork-dify-api:local
+
+  api_websocket:
+    image: agentnetwork-dify-api:local
+
+  worker:
+    image: agentnetwork-dify-api:local
+
+  worker_beat:
+    image: agentnetwork-dify-api:local
+
+  web:
+    image: agentnetwork-dify-web:local
+    extra_hosts:
+      - host.docker.internal:host-gateway

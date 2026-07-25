@@ -108,6 +108,7 @@
   "agentNetworkChat.emptyDescription": "描述一个任务，Agent Network 会返回伪代码并生成可编辑的工作流。",
   "agentNetworkChat.emptyTitle": "使用 Agent Network 规划工作流",
   "agentNetworkChat.failed": "工作流生成失败：{{reason}}",
+  "agentNetworkChat.initialTaskMissing": "\u8bf7\u5148\u5728 Agent Network \u5bf9\u8bdd\u4e2d\u751f\u6210\u5de5\u4f5c\u6d41\uff0c\u518d\u6267\u884c\u5f53\u524d\u5de5\u4f5c\u6d41\u3002",
   "agentNetworkChat.placeholder": "描述希望 Agent Network 规划的任务……",
   "agentNetworkChat.planning": "正在等待 Agent Network 规划工作流……",
   "agentNetworkChat.readOnly": "你目前只有查看该工作流的权限。",

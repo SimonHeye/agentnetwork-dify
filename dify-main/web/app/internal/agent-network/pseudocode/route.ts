@@ -1,87 +1,92 @@
 import { z } from 'zod'
 import { isSameOriginRequest } from '../same-origin'
 
-const diagnosticSchema = z.object({
-  severity: z.enum(['warning', 'error']),
-  code: z.string().min(1).max(100),
-  message: z.string().min(1).max(2000),
-  nodeId: z.string().max(256).optional(),
+const executeParamSchema = z.union([z.string(), z.number(), z.boolean()])
+
+const requestSchema = z.object({
+  task: z.string().trim().min(1).max(100_000),
+  code: z.string().min(1).max(1_000_000),
+  params: z.record(z.string(), executeParamSchema).optional().default({}),
+  need_task: z.boolean().optional().default(false),
+  need_match: z.boolean().optional().default(false),
+  include_agents: z.boolean().optional().default(true),
 }).strict()
 
-const statsSchema = z.object({
-  nodes: z.number().int().nonnegative(),
-  edges: z.number().int().nonnegative(),
-  agents: z.number().int().nonnegative(),
-  branches: z.number().int().nonnegative(),
-  skills: z.number().int().nonnegative(),
-}).strict()
+const traceSchema = z.object({
+  identifier: z.string(),
+  vertex: z.string(),
+  params: z.record(z.string(), z.unknown()),
+  scalar: z.string(),
+}).passthrough()
 
-const deliverySchema = z.object({
-  appId: z.string().min(1).max(128),
-  appName: z.string().max(200).optional(),
-  pseudocode: z.string().min(1).max(1_000_000),
-  diagnostics: z.array(diagnosticSchema).max(1000),
-  stats: statsSchema,
-}).strict()
+const agentNetworkResponseSchema = z.object({
+  final_result: z.unknown(),
+  context: z.record(z.string(), z.unknown()),
+  trace: z.array(traceSchema),
+  calls: z.number().int().nonnegative(),
+}).passthrough()
 
-const DEFAULT_TIMEOUT_MS = 10_000
+const DEFAULT_TIMEOUT_MS = 120_000
 const MIN_TIMEOUT_MS = 1_000
-const MAX_TIMEOUT_MS = 60_000
+const MAX_TIMEOUT_MS = 600_000
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request))
     return json({ code: 'CROSS_ORIGIN_REQUEST' }, 403)
 
-  const input = deliverySchema.safeParse(await readJson(request))
+  const input = requestSchema.safeParse(await readJson(request))
   if (!input.success)
     return json({ code: 'INVALID_REQUEST' }, 400)
 
-  const receiverUrl = resolveReceiverUrl(process.env.AGENT_NETWORK_PSEUDOCODE_URL)
-  if (!receiverUrl)
+  const executeUrl = resolveHttpUrl(process.env.AGENT_NETWORK_EXECUTE_URL)
+  if (!executeUrl)
     return json({ code: 'AGENT_NETWORK_NOT_CONFIGURED' }, 503)
 
-  const deliveryId = crypto.randomUUID()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Dify-Delivery-Id': deliveryId,
   }
-  const apiKey = process.env.AGENT_NETWORK_PSEUDOCODE_API_KEY?.trim()
+  const apiKey = (
+    process.env.AGENT_NETWORK_EXECUTE_API_KEY
+    || process.env.AGENT_NETWORK_API_KEY
+  )?.trim()
   if (apiKey)
     headers.Authorization = `Bearer ${apiKey}`
 
-  const payload = {
-    schema_version: '1.0',
-    event: 'dify.workflow.pseudocode.generated',
-    delivery_id: deliveryId,
-    sent_at: new Date().toISOString(),
-    app: {
-      id: input.data.appId,
-      ...(input.data.appName ? { name: input.data.appName } : {}),
-    },
-    pseudocode: input.data.pseudocode,
-    diagnostics: input.data.diagnostics,
-    stats: input.data.stats,
-  }
-
   try {
-    const response = await fetch(receiverUrl, {
+    const response = await fetch(executeUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(input.data),
       cache: 'no-store',
       signal: AbortSignal.timeout(resolveTimeout()),
     })
-    if (!response.ok)
-      return json({ code: 'AGENT_NETWORK_REJECTED' }, 502)
+    if (!response.ok) {
+      const message = await readErrorMessage(response)
+      return json({
+        code: 'AGENT_NETWORK_EXECUTION_FAILED',
+        ...(message ? { message } : {}),
+      }, 502)
+    }
+
+    const rawResult = await readJson(response)
+    if (!isRecord(rawResult) || !Object.hasOwn(rawResult, 'final_result'))
+      return json({ code: 'AGENT_NETWORK_INVALID_RESPONSE' }, 502)
+
+    const result = agentNetworkResponseSchema.safeParse(rawResult)
+    if (!result.success)
+      return json({ code: 'AGENT_NETWORK_INVALID_RESPONSE' }, 502)
+
+    return Response.json(result.data, {
+      status: 200,
+      headers: { 'Cache-Control': 'no-store' },
+    })
   }
   catch {
     return json({ code: 'AGENT_NETWORK_UNAVAILABLE' }, 502)
   }
-
-  return json({ delivery_id: deliveryId, status: 'accepted' }, 202)
 }
 
-async function readJson(request: Request): Promise<unknown> {
+async function readJson(request: Request | Response): Promise<unknown> {
   try {
     return await request.json()
   }
@@ -90,7 +95,21 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-function resolveReceiverUrl(value: string | undefined): string | null {
+async function readErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const message = (await response.text()).trim()
+    return message ? message.slice(0, 10_000) : null
+  }
+  catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function resolveHttpUrl(value: string | undefined): string | null {
   if (!value?.trim())
     return null
   try {
@@ -103,13 +122,13 @@ function resolveReceiverUrl(value: string | undefined): string | null {
 }
 
 function resolveTimeout(): number {
-  const configured = Number(process.env.AGENT_NETWORK_PSEUDOCODE_TIMEOUT_MS)
+  const configured = Number(process.env.AGENT_NETWORK_EXECUTE_TIMEOUT_MS)
   if (!Number.isFinite(configured))
     return DEFAULT_TIMEOUT_MS
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(configured)))
 }
 
-function json(body: Record<string, string>, status: number): Response {
+function json(body: Record<string, unknown>, status: number): Response {
   return Response.json(body, {
     status,
     headers: { 'Cache-Control': 'no-store' },

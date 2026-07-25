@@ -1,6 +1,6 @@
 'use client'
 
-import type { AgentNetworkReverseResult } from './types'
+import type { AgentNetworkExecuteResult, AgentNetworkReverseResult } from './types'
 import { Button } from '@langgenius/dify-ui/button'
 import {
   Dialog,
@@ -12,7 +12,10 @@ import { toast } from '@langgenius/dify-ui/toast'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNodesSyncDraft } from '@/app/components/workflow/hooks/use-nodes-sync-draft'
-import { sendPseudocodeToAgentNetwork } from './send-pseudocode'
+import { executeAgentNetworkCode } from './execute-code'
+import { formatAgentNetworkFinalResult } from './format-execute-result'
+import { resolveAgentNetworkExecuteTask } from './resolve-execute-task'
+import { useAgentNetworkInitialTasks } from './storage'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type AgentNetworkPseudocodeTriggerProps = {
@@ -24,19 +27,24 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const { t } = useTranslation('common')
   const { doSyncWorkflowDraft } = useNodesSyncDraft()
   const { exportPseudocode } = useAgentNetworkWorkflow()
+  const [taskContexts] = useAgentNetworkInitialTasks()
   const [open, setOpen] = useState(false)
   const [result, setResult] = useState<AgentNetworkReverseResult | null>(null)
+  const [executionResult, setExecutionResult] = useState<AgentNetworkExecuteResult | null>(null)
   const [activeAction, setActiveAction] = useState<'save' | 'execute' | null>(null)
 
   const handleOpen = useCallback(() => {
+    setExecutionResult(null)
     setResult(exportPseudocode({ workflowName }))
     setOpen(true)
   }, [exportPseudocode, workflowName])
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (!nextOpen)
+    if (!nextOpen) {
       setResult(null)
+      setExecutionResult(null)
+    }
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -67,6 +75,11 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const handleExecute = useCallback(async () => {
     if (!appId || activeAction)
       return
+    const executeTask = resolveAgentNetworkExecuteTask(taskContexts?.[appId])
+    if (!executeTask) {
+      toast.error(t('agentNetworkChat.initialTaskMissing'))
+      return
+    }
 
     setActiveAction('execute')
     try {
@@ -87,22 +100,27 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
         return
       }
 
-      await sendPseudocodeToAgentNetwork({
-        appId,
-        appName: workflowName,
-        pseudocode: nextResult.source,
-        diagnostics: nextResult.diagnostics,
-        stats: nextResult.stats,
+      const nextExecutionResult = await executeAgentNetworkCode({
+        task: executeTask,
+        code: nextResult.source,
+        params: {},
+        need_task: false,
+        need_match: false,
+        include_agents: true,
       })
-      toast.success(t('api.success'))
+      setExecutionResult(nextExecutionResult)
+      setOpen(true)
+      const finalResult = formatAgentNetworkFinalResult(nextExecutionResult.finalResult)
+      toast.success(finalResult || t('api.success'))
     }
-    catch {
-      toast.error(t('api.actionFailed'))
+    catch (error) {
+      const message = error instanceof Error ? error.message : t('api.actionFailed')
+      toast.error(message === 'DIFY_DRAFT_SAVE_FAILED' ? t('api.actionFailed') : message)
     }
     finally {
       setActiveAction(null)
     }
-  }, [activeAction, appId, doSyncWorkflowDraft, exportPseudocode, t, workflowName])
+  }, [activeAction, appId, doSyncWorkflowDraft, exportPseudocode, t, taskContexts, workflowName])
 
   const diagnostics = result?.diagnostics ?? []
 
@@ -136,6 +154,28 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
               <pre className="overflow-x-auto rounded-lg bg-background-section-burn p-4 font-mono text-xs leading-5 text-text-primary">
                 <code>{result.source}</code>
               </pre>
+            )}
+
+            {executionResult && (
+              <section className={result?.source ? 'mt-5' : undefined}>
+                <div className="mb-2 system-sm-semibold text-text-secondary">final_result</div>
+                <pre className="overflow-x-auto rounded-lg bg-background-section-burn p-4 font-mono text-xs leading-5 text-text-primary">
+                  <code>{formatAgentNetworkFinalResult(executionResult.finalResult) || 'null'}</code>
+                </pre>
+                {executionResult.trace.length > 0 && (
+                  <div className="mt-5">
+                    <div className="mb-2 system-sm-semibold text-text-secondary">trace</div>
+                    <ol className="space-y-2">
+                      {executionResult.trace.map((item, index) => (
+                        <li key={`${index}-${item.identifier}-${item.vertex}`} className="rounded-lg bg-background-section px-4 py-3 font-mono text-xs text-text-secondary">
+                          <span className="font-semibold text-text-primary">{item.identifier}</span>
+                          <span>{`: ${item.scalar}`}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </section>
             )}
 
             {diagnostics.length > 0 && (

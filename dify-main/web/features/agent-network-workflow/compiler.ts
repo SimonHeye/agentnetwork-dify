@@ -12,6 +12,9 @@ import type {
   AgentNetworkModelConfig,
 } from './types'
 import type { Edge, Node, WorkflowDataUpdater } from '@/app/components/workflow/types'
+import { ITERATION_CHILDREN_Z_INDEX, LOOP_CHILDREN_Z_INDEX } from '@/app/components/workflow/constants'
+import { CUSTOM_ITERATION_START_NODE } from '@/app/components/workflow/nodes/iteration-start/constants'
+import { CUSTOM_LOOP_START_NODE } from '@/app/components/workflow/nodes/loop-start/constants'
 import { BlockEnum } from '@/app/components/workflow/types'
 import {
   cloneProducerMap,
@@ -66,7 +69,35 @@ type BranchStep = {
   line: number
 }
 
-type SemanticStep = CallStep | BranchStep
+type IterationStep = {
+  id: string
+  kind: 'iteration'
+  iterator: ParsedValue
+  indexName: string | null
+  itemName: string
+  body: string[]
+  outputVariable: string
+  output: ParsedValue
+  outputSource: string
+  outputKey: string | null
+  line: number
+}
+
+type LoopStep = {
+  id: string
+  kind: 'loop'
+  count: number
+  indexName: string
+  body: string[]
+  loopVariables: Array<{ name: string, value: ParsedValue }>
+  breakCondition: ParsedCondition | null
+  source: 'range' | 'while'
+  line: number
+}
+
+type SemanticStep = CallStep | BranchStep | IterationStep | LoopStep
+
+type LocalSelector = { nodeId: string, key: string, type: string }
 
 type Binding = {
   id: string
@@ -92,6 +123,7 @@ type FlowSemantics = {
   bindings: Binding[]
   terminals: Terminal[]
   variables: Record<string, string[]>
+  localSelectors: Record<string, LocalSelector>
   warnings: string[]
 }
 
@@ -108,11 +140,13 @@ class SemanticCompiler {
   private readonly terminals: Terminal[] = []
   private readonly bindings: Binding[] = []
   private readonly warnings: string[] = []
+  private readonly localSelectors: Record<string, LocalSelector> = {}
   private readonly everAssigned = new Set<string>()
   private readonly idCounts = new Map<string, number>()
   private branchCount = 0
   private terminalCount = 0
   private bindingCount = 0
+  private containerCount = 0
 
   constructor(options: AgentNetworkCompileOptions) {
     this.terminalFunctions = new Set(options.terminalFunctions ?? ['reply'])
@@ -134,6 +168,7 @@ class SemanticCompiler {
       bindings: this.bindings,
       terminals: this.terminals,
       variables: this.producers,
+      localSelectors: this.localSelectors,
       warnings: this.warnings,
     }
   }
@@ -182,6 +217,18 @@ class SemanticCompiler {
         ids.push(this.addBranch(statement, last))
         continue
       }
+      if (statement.kind === 'for') {
+        ids.push(this.addFor(statement))
+        continue
+      }
+      if (statement.kind === 'while') {
+        ids.push(this.addWhile(statement))
+        continue
+      }
+      if (statement.kind === 'append')
+        throw new AgentNetworkCompileError('list.append is only supported as the final statement of an Iteration', statement.line)
+      if (statement.kind === 'break')
+        throw new AgentNetworkCompileError('break is only supported as the final conditional in a Loop', statement.line)
       if (statement.kind === 'return') {
         if (statement.value)
           this.registerValue(statement.value, statement.line)
@@ -192,6 +239,166 @@ class SemanticCompiler {
       }
     }
     return ids
+  }
+
+  private addFor(statement: Extract<ParsedStatement, { kind: 'for' }>): string {
+    return statement.iterator.functionName === 'enumerate'
+      ? this.addIteration(statement)
+      : this.addRangeLoop(statement)
+  }
+
+  private addIteration(statement: Extract<ParsedStatement, { kind: 'for' }>): string {
+    if (statement.targets.length !== 2 || statement.iterator.args.length !== 1 || Object.keys(statement.iterator.kwargs).length)
+      throw new AgentNetworkCompileError('Iteration requires: for index, item in enumerate(iterator)', statement.line)
+    const append = statement.body.at(-1)
+    if (append?.kind !== 'append')
+      throw new AgentNetworkCompileError('Iteration body must finish by appending its output', statement.line)
+    const initializer = [...this.bindings].reverse().find(binding => binding.target === append.target)
+    if (initializer?.value.expr !== 'list' || initializer.value.items.length)
+      throw new AgentNetworkCompileError(`Iteration output ${append.target} must be initialized to []`, statement.line)
+
+    const iterator = statement.iterator.args[0]!
+    this.registerValue(iterator, statement.line)
+    const id = `iteration_${++this.containerCount}`
+    const step: IterationStep = {
+      id,
+      kind: 'iteration',
+      iterator,
+      indexName: statement.targets[0]!,
+      itemName: statement.targets[1]!,
+      body: [],
+      outputVariable: append.target,
+      output: append.value,
+      outputSource: '',
+      outputKey: null,
+      line: statement.line,
+    }
+    this.steps.push(step)
+    const assignedSnapshot = new Set(this.assigned)
+    const producerSnapshot = cloneProducerMap(this.producers)
+    this.assigned.add(step.indexName!)
+    this.assigned.add(step.itemName)
+    this.localSelectors[step.indexName!] = { nodeId: id, key: 'index', type: 'number' }
+    this.localSelectors[step.itemName] = { nodeId: id, key: 'item', type: 'string' }
+    step.body = this.walk(statement.body.slice(0, -1), false)
+    this.registerValue(step.output, append.line)
+    const outputName = step.output.expr === 'access' ? step.output.variable : step.output.expr === 'var' ? step.output.name : null
+    const outputSources = outputName ? this.producers[outputName] ?? [] : []
+    if (outputSources.length !== 1)
+      throw new AgentNetworkCompileError('Iteration append output must come from exactly one node call', append.line)
+    step.outputSource = outputSources[0]!
+    step.outputKey = step.output.expr === 'access' ? step.output.key : null
+    this.assigned = assignedSnapshot
+    this.producers = producerSnapshot
+    this.producers[step.outputVariable] = [id]
+    this.assigned.add(step.outputVariable)
+    this.everAssigned.add(step.outputVariable)
+    return id
+  }
+
+  private addRangeLoop(statement: Extract<ParsedStatement, { kind: 'for' }>): string {
+    if (statement.targets.length !== 1 || statement.iterator.args.length !== 1 || Object.keys(statement.iterator.kwargs).length)
+      throw new AgentNetworkCompileError('Loop requires: for index in range(count)', statement.line)
+    const count = statement.iterator.args[0]
+    if (count?.expr !== 'const' || typeof count.value !== 'number' || !Number.isInteger(count.value) || count.value < 1)
+      throw new AgentNetworkCompileError('Loop range count must be a positive integer', statement.line)
+    const { body, breakCondition } = this.extractBreak(statement.body)
+    return this.addLoop({ count: count.value, indexName: statement.targets[0]!, body, breakCondition, source: 'range', line: statement.line })
+  }
+
+  private addWhile(statement: Extract<ParsedStatement, { kind: 'while' }>): string {
+    const terminalBreak = statement.body.at(-1)?.kind === 'break'
+    const count = terminalBreak ? 1 : 100
+    this.warnings.push(terminalBreak
+      ? `Line ${statement.line}: while with terminal break was mapped to a one-iteration Dify Loop`
+      : `Line ${statement.line}: while was mapped to a Dify Loop with a safety limit of 100 iterations`)
+    return this.addLoop({
+      count,
+      indexName: `while_index_${this.containerCount + 1}`,
+      body: terminalBreak ? statement.body.slice(0, -1) : statement.body,
+      breakCondition: statement.condition,
+      source: 'while',
+      line: statement.line,
+    })
+  }
+
+  private addLoop(config: {
+    count: number
+    indexName: string
+    body: ParsedStatement[]
+    breakCondition: ParsedCondition | null
+    source: 'range' | 'while'
+    line: number
+  }): string {
+    const id = `loop_${++this.containerCount}`
+    const refs = new Set([...this.statementReferences(config.body), ...(config.breakCondition?.refs ?? [])])
+    const loopVariables = [...refs].flatMap((name) => {
+      const binding = [...this.bindings].reverse().find(candidate => candidate.target === name)
+      return binding && binding.value.expr !== 'raw' ? [{ name, value: binding.value }] : []
+    })
+    const step: LoopStep = {
+      id,
+      kind: 'loop',
+      count: config.count,
+      indexName: config.indexName,
+      body: [],
+      loopVariables,
+      breakCondition: config.breakCondition,
+      source: config.source,
+      line: config.line,
+    }
+    this.steps.push(step)
+    const assignedSnapshot = new Set(this.assigned)
+    const producerSnapshot = cloneProducerMap(this.producers)
+    this.assigned.add(step.indexName)
+    this.localSelectors[step.indexName] = { nodeId: id, key: 'index', type: 'number' }
+    for (const variable of loopVariables)
+      this.localSelectors[variable.name] = { nodeId: id, key: variable.name, type: parsedValueType(variable.value) }
+    step.body = this.walk(config.body, false)
+    if (config.breakCondition)
+      this.registerCondition(config.breakCondition, config.line)
+    this.assigned = assignedSnapshot
+    this.producers = producerSnapshot
+    for (const variable of loopVariables) {
+      this.producers[variable.name] = [id]
+      this.assigned.add(variable.name)
+    }
+    return id
+  }
+
+  private extractBreak(body: ParsedStatement[]): { body: ParsedStatement[], breakCondition: ParsedCondition | null } {
+    const last = body.at(-1)
+    if (
+      last?.kind !== 'if'
+      || last.cases.length !== 1
+      || last.elseBody.length
+      || last.cases[0]?.body.length !== 1
+      || last.cases[0].body[0]?.kind !== 'break'
+    ) {
+      return { body, breakCondition: null }
+    }
+    return { body: body.slice(0, -1), breakCondition: last.cases[0].condition }
+  }
+
+  private statementReferences(statements: ParsedStatement[]): string[] {
+    const refs = new Set<string>()
+    const visit = (statement: ParsedStatement) => {
+      if (statement.kind === 'assign-call' || statement.kind === 'call') {
+        [...statement.call.args, ...Object.values(statement.call.kwargs)].forEach(value => value.refs.forEach(ref => refs.add(ref)))
+      }
+      else if (statement.kind === 'assign' || statement.kind === 'append') {
+        statement.value.refs.forEach(ref => refs.add(ref))
+      }
+      else if (statement.kind === 'if') {
+        statement.cases.forEach((item) => {
+          item.condition.refs.forEach(ref => refs.add(ref))
+          item.body.forEach(visit)
+        })
+        statement.elseBody.forEach(visit)
+      }
+    }
+    statements.forEach(visit)
+    return [...refs]
   }
 
   private addCall(call: ParsedCall, target: string | null, line: number): string {
@@ -226,7 +433,10 @@ class SemanticCompiler {
     if (statement.value.expr === 'raw')
       throw new AgentNetworkCompileError(`Unsupported assignment expression: ${statement.value.raw}`, statement.line)
     const sources = Object.fromEntries(
-      statement.value.refs.map(name => [name, [...(this.producers[name] ?? [])]]),
+      statement.value.refs.map(name => [
+        name,
+        [...(this.producers[name] ?? (this.localSelectors[name] ? [this.localSelectors[name].nodeId] : []))],
+      ]),
     )
     const inherited = [...new Set(Object.values(sources).flat())]
     const id = `binding_${++this.bindingCount}`
@@ -303,7 +513,7 @@ class SemanticCompiler {
   private registerReferences(references: string[], line: number) {
     for (const name of references) {
       this.consumed.add(name)
-      if (this.assigned.has(name))
+      if (this.assigned.has(name) || this.localSelectors[name])
         continue
       if (name in this.producers || this.everAssigned.has(name)) {
         throw new AgentNetworkCompileError(`Variable ${name} is not defined on every path`, line)
@@ -349,10 +559,12 @@ class DifyGraphCompiler {
   private readonly terminals: Map<string, Terminal>
   private readonly variables: Record<string, string[]>
   private readonly inputTypes: Record<string, string>
+  private readonly localSelectors: Record<string, LocalSelector>
   private readonly structuredFields = new Map<string, Record<string, 'string' | 'number' | 'boolean'>>()
   private readonly nodes: Node[] = []
   private readonly edges: Edge[] = []
   private readonly nodeTypes = new Map<string, BlockEnum>()
+  private readonly parentByNode = new Map<string, string>()
   private readonly seenEdges = new Set<string>()
   private readonly visitedSteps = new Set<string>()
   private readonly terminalCounts = new Map<string, number>()
@@ -364,14 +576,30 @@ class DifyGraphCompiler {
     this.bindingsByTarget = new Map(semantics.bindings.map(binding => [binding.target, binding]))
     this.terminals = new Map(semantics.terminals.map(terminal => [terminal.id, terminal]))
     this.variables = semantics.variables
+    this.localSelectors = semantics.localSelectors
     this.inputTypes = Object.fromEntries(semantics.inputs.map(input => [input.name, input.type]))
   }
 
   compile(semantics: FlowSemantics): WorkflowDataUpdater {
     this.inferStructuredOutputs()
     this.appendNode(this.buildStartNode(semantics.inputs))
-    for (const step of this.steps.values())
-      this.appendNode(step.kind === 'call' ? this.buildCallNode(step) : this.buildBranchNode(step))
+    for (const step of this.steps.values()) {
+      if (step.kind === 'call') {
+        this.appendNode(this.buildCallNode(step))
+      }
+      else if (step.kind === 'branch') {
+        this.appendNode(this.buildBranchNode(step))
+      }
+      else if (step.kind === 'iteration') {
+        this.appendNode(this.buildIterationNode(step))
+        this.appendNode(this.buildContainerStartNode(step.id, BlockEnum.IterationStart))
+      }
+      else {
+        this.appendNode(this.buildLoopNode(step))
+        this.appendNode(this.buildContainerStartNode(step.id, BlockEnum.LoopStart))
+      }
+    }
+    this.attachContainerChildren()
     const exits = this.walkSequence(semantics.body, [{ nodeId: START_NODE_ID, sourceHandle: SOURCE_HANDLE }])
     if (exits.length)
       throw new AgentNetworkCompileError('Workflow finishes without reaching an output')
@@ -424,6 +652,9 @@ class DifyGraphCompiler {
   }
 
   private buildCallNode(step: CallStep): Node {
+    if (step.functionName === 'CodeExecution')
+      return this.buildCodeNode(step)
+
     if (!step.functionName.endsWith('Group'))
       throw new AgentNetworkCompileError(`Function ${step.functionName} is unsupported; workflow calls must end with Group`, step.line)
     const override = this.options.groupOverrides?.[step.functionName]
@@ -470,6 +701,167 @@ class DifyGraphCompiler {
       delete data.structured_output
     }
     return this.buildNode(step.id, BlockEnum.LLM, data)
+  }
+
+  private buildCodeNode(step: CallStep): Node {
+    const inputs = this.requireDictArgument(step, 'inputs')
+    const outputs = this.requireDictArgument(step, 'outputs')
+    const language = this.requireStringArgument(step, 'language')
+    const code = this.requireStringArgument(step, 'code')
+    const variables = Object.entries(inputs.entries).map(([variable, value]) => ({
+      variable,
+      value_selector: this.valueOutput(value)[0],
+    }))
+    const outputSchema = Object.fromEntries(Object.entries(outputs.entries).map(([name, value]) => {
+      if (value.expr !== 'dict')
+        throw new AgentNetworkCompileError(`CodeExecution output ${name} must be an object`, step.line)
+      const type = value.entries.type
+      if (type?.expr !== 'const' || typeof type.value !== 'string')
+        throw new AgentNetworkCompileError(`CodeExecution output ${name} requires a string type`, step.line)
+      return [name, { type: type.value, children: null }]
+    }))
+    const config = step.kwargs.config ? this.literalValue(step.kwargs.config, step.line) : {}
+    if (!isRecord(config))
+      throw new AgentNetworkCompileError('CodeExecution config must be an object', step.line)
+    return this.buildNode(step.id, BlockEnum.Code, {
+      ...config,
+      type: BlockEnum.Code,
+      title: 'Code',
+      desc: '',
+      selected: false,
+      variables,
+      code_language: language,
+      code,
+      outputs: outputSchema,
+    })
+  }
+
+  private requireDictArgument(step: CallStep, name: string): Extract<ParsedValue, { expr: 'dict' }> {
+    const value = step.kwargs[name]
+    if (value?.expr !== 'dict')
+      throw new AgentNetworkCompileError(`${step.functionName} requires ${name}={...}`, step.line)
+    return value
+  }
+
+  private requireStringArgument(step: CallStep, name: string): string {
+    const value = step.kwargs[name]
+    if (value?.expr !== 'const' || typeof value.value !== 'string')
+      throw new AgentNetworkCompileError(`${step.functionName} requires a string ${name}`, step.line)
+    return value.value
+  }
+
+  private buildIterationNode(step: IterationStep): Node {
+    const [iteratorSelector] = this.valueOutput(step.iterator)
+    const [outputSelector, outputType] = this.sourceOutput(step.outputSource, step.outputKey ?? undefined)
+    return this.buildNode(step.id, BlockEnum.Iteration, {
+      type: BlockEnum.Iteration,
+      title: 'Iteration',
+      desc: '',
+      selected: false,
+      iterator_selector: iteratorSelector,
+      iterator_input_type: 'array[string]',
+      output_selector: outputSelector,
+      output_type: `array[${outputType}]`,
+      start_node_id: `${step.id}_start`,
+      is_parallel: false,
+      parallel_nums: 1,
+      error_handle_mode: 'terminated',
+      flatten_output: false,
+      _isShowTips: false,
+      _children: [],
+    }, 320)
+  }
+
+  private buildLoopNode(step: LoopStep): Node {
+    const condition = step.breakCondition
+      ? (step.source === 'while' ? invertCondition(step.breakCondition) : step.breakCondition)
+      : null
+    const breakConditions = condition?.comparisons.map((comparison, index) => (
+      this.buildCondition(step.id, 'break', index, comparison)
+    )) ?? []
+    return this.buildNode(step.id, BlockEnum.Loop, {
+      type: BlockEnum.Loop,
+      title: 'Loop',
+      desc: '',
+      selected: false,
+      start_node_id: `${step.id}_start`,
+      loop_count: step.count,
+      loop_variables: step.loopVariables.map(variable => ({
+        id: variable.name,
+        label: variable.name,
+        var_type: difyVariableType(parsedValueType(variable.value)),
+        value_type: 'constant',
+        value: this.literalValue(variable.value, step.line),
+      })),
+      logical_operator: condition?.logical ?? 'and',
+      break_conditions: breakConditions,
+      error_handle_mode: 'terminated',
+      _children: [],
+    }, 320)
+  }
+
+  private buildContainerStartNode(parentId: string, type: BlockEnum.IterationStart | BlockEnum.LoopStart): Node {
+    const node = this.buildNode(`${parentId}_start`, type, {
+      type,
+      title: '',
+      desc: '',
+      selected: false,
+      ...(type === BlockEnum.IterationStart ? { isInIteration: true } : { isInLoop: true }),
+    })
+    node.parentId = parentId
+    node.type = type === BlockEnum.IterationStart
+      ? CUSTOM_ITERATION_START_NODE
+      : CUSTOM_LOOP_START_NODE
+    node.zIndex = type === BlockEnum.IterationStart
+      ? ITERATION_CHILDREN_Z_INDEX
+      : LOOP_CHILDREN_Z_INDEX
+    node.position = { x: 24, y: 68 }
+    node.positionAbsolute = { x: 24, y: 68 }
+    node.selectable = false
+    node.draggable = false
+    this.parentByNode.set(node.id, parentId)
+    return node
+  }
+
+  private attachContainerChildren() {
+    for (const step of this.steps.values()) {
+      if (step.kind !== 'iteration' && step.kind !== 'loop')
+        continue
+      this.attachSequence(step.body, step.id, step.kind)
+      const parent = this.nodes.find(node => node.id === step.id)
+      if (!parent)
+        continue
+      const children = this.nodes.filter(node => node.parentId === step.id)
+      ;(parent.data as Record<string, unknown>)._children = children.map(node => ({
+        nodeId: node.id,
+        nodeType: node.data.type,
+      }))
+    }
+  }
+
+  private attachSequence(sequence: string[], parentId: string, kind: 'iteration' | 'loop') {
+    for (const id of sequence) {
+      const step = this.steps.get(id)
+      if (!step)
+        continue
+      const node = this.nodes.find(candidate => candidate.id === id)
+      if (node) {
+        node.parentId = parentId
+        node.position = { x: 320 + this.parentByNode.size * 280, y: 90 }
+        node.positionAbsolute = { ...node.position }
+        node.data = {
+          ...node.data,
+          ...(kind === 'iteration'
+            ? { isInIteration: true, iteration_id: parentId }
+            : { isInLoop: true, loop_id: parentId }),
+        }
+        this.parentByNode.set(id, parentId)
+      }
+      if (step.kind === 'branch') {
+        step.cases.forEach(branchCase => this.attachSequence(branchCase.body, parentId, kind))
+        this.attachSequence(step.elseCase.body, parentId, kind)
+      }
+    }
   }
 
   private buildBranchNode(step: BranchStep): Node {
@@ -540,9 +932,19 @@ class DifyGraphCompiler {
       this.visitedSteps.add(objectId)
       for (const edge of exits)
         this.appendEdge(edge.nodeId, objectId, edge.sourceHandle)
-      exits = step.kind === 'call'
-        ? [{ nodeId: objectId, sourceHandle: SOURCE_HANDLE }]
-        : this.walkBranch(step)
+      if (step.kind === 'call') {
+        exits = [{ nodeId: objectId, sourceHandle: SOURCE_HANDLE }]
+      }
+      else if (step.kind === 'branch') {
+        exits = this.walkBranch(step)
+      }
+      else {
+        const startId = `${step.id}_start`
+        if (step.body.length)
+          this.walkSequence(step.body, [{ nodeId: startId, sourceHandle: SOURCE_HANDLE }])
+        this.visitedSteps.add(startId)
+        exits = [{ nodeId: objectId, sourceHandle: SOURCE_HANDLE }]
+      }
     }
     return exits
   }
@@ -560,12 +962,23 @@ class DifyGraphCompiler {
 
   private appendTerminalNodes(terminal: Terminal, incoming: Incoming[]) {
     for (const edge of incoming) {
-      const [selector, valueType] = this.terminalOutput(terminal, edge.nodeId)
       const count = (this.terminalCounts.get(terminal.id) ?? 0) + 1
       this.terminalCounts.set(terminal.id, count)
       let nodeId = incoming.length === 1 ? terminal.id : `${terminal.id}_${edge.nodeId}`
       if (count > 1 && nodeId === terminal.id)
         nodeId = `${terminal.id}_${count}`
+      if (terminal.via === 'reply') {
+        this.appendNode(this.buildNode(nodeId, BlockEnum.Answer, {
+          type: BlockEnum.Answer,
+          title: 'Answer',
+          desc: '',
+          selected: false,
+          answer: this.renderValue(terminal.output!),
+        }))
+        this.appendEdge(edge.nodeId, nodeId, edge.sourceHandle)
+        continue
+      }
+      const [selector, valueType] = this.terminalOutput(terminal, edge.nodeId)
       this.appendNode(this.buildNode(nodeId, BlockEnum.End, {
         type: BlockEnum.End,
         title: 'End',
@@ -587,6 +1000,8 @@ class DifyGraphCompiler {
         throw new AgentNetworkCompileError(`Output ${terminal.id} does not match its control-flow source`, terminal.line)
       return this.sourceOutput(terminal.outputStep)
     }
+    if (terminal.output?.expr === 'access')
+      return this.valueOutput(terminal.output)
     if (!terminal.output || terminal.output.refs.length !== 1)
       throw new AgentNetworkCompileError('Workflow outputs must reference exactly one variable', terminal.line)
     const variable = terminal.output.refs[0]!
@@ -607,6 +1022,10 @@ class DifyGraphCompiler {
   }
 
   private renderValue(value: ParsedValue, resolving = new Set<string>()): string {
+    if (value.expr === 'access')
+      return selectorTemplate(this.valueOutput(value)[0])
+    if (value.expr === 'list' || value.expr === 'dict')
+      return JSON.stringify(this.literalValue(value, null))
     if (value.expr === 'var') {
       const sources = this.variables[value.name] ?? []
       const binding = this.bindingsByTarget.get(value.name)
@@ -634,12 +1053,27 @@ class DifyGraphCompiler {
     }).join('')
   }
 
+  private valueOutput(value: ParsedValue): [string[], string] {
+    if (value.expr === 'var')
+      return this.variableOutput(value.name)
+    if (value.expr === 'access') {
+      const sources = this.variables[value.variable] ?? []
+      if (sources.length !== 1)
+        throw new AgentNetworkCompileError(`Variable ${value.variable} must have exactly one producer`)
+      return this.sourceOutput(sources[0]!, value.key)
+    }
+    throw new AgentNetworkCompileError(`Expression ${value.raw} cannot be represented as a Dify selector`)
+  }
+
   private variableOutput(variable: string, resolving = new Set<string>()): [string[], string] {
     const sources = this.variables[variable] ?? []
     if (sources.length === 1)
       return this.sourceOutput(sources[0]!)
     if (sources.length > 1)
       throw new AgentNetworkCompileError(`Variable ${variable} has multiple producers outside an output join`)
+    const local = this.localSelectors[variable]
+    if (local)
+      return [[local.nodeId, local.key], local.type]
     if (variable in this.inputTypes)
       return [[START_NODE_ID, variable], schemaTypeForInput(this.inputTypes[variable])]
 
@@ -652,13 +1086,47 @@ class DifyGraphCompiler {
     throw new AgentNetworkCompileError(`Variable ${variable} cannot be represented as a Dify value selector`)
   }
 
-  private sourceOutput(sourceId: string): [string[], string] {
+  private sourceOutput(sourceId: string, key?: string): [string[], string] {
     const step = this.steps.get(sourceId)
+    if (step?.kind === 'iteration')
+      return [[sourceId, key ?? 'output'], 'array[string]']
+    if (step?.kind === 'loop') {
+      const outputKey = key ?? step.loopVariables[0]?.name ?? 'index'
+      const variable = step.loopVariables.find(item => item.name === outputKey)
+      return [[sourceId, outputKey], variable ? parsedValueType(variable.value) : 'number']
+    }
     if (step?.kind !== 'call')
-      throw new AgentNetworkCompileError(`Source ${sourceId} is not a Group call`)
+      throw new AgentNetworkCompileError(`Source ${sourceId} is not a workflow call`)
+    if (step.functionName === 'CodeExecution') {
+      const outputs = this.requireDictArgument(step, 'outputs')
+      const outputName = key ?? Object.keys(outputs.entries)[0]
+      if (!outputName || !outputs.entries[outputName])
+        throw new AgentNetworkCompileError(`CodeExecution ${sourceId} has no output ${key ?? ''}`.trim())
+      const output = outputs.entries[outputName]
+      const typeValue = output.expr === 'dict' ? output.entries.type : null
+      const type = typeValue?.expr === 'const' && typeof typeValue.value === 'string' ? typeValue.value : 'string'
+      return [[sourceId, outputName], type]
+    }
+    if (!step.functionName.endsWith('Group'))
+      throw new AgentNetworkCompileError(`Source ${sourceId} is unsupported`)
+    if (key) {
+      return this.structuredFields.has(sourceId)
+        ? [[sourceId, 'structured_output', key], this.structuredFields.get(sourceId)?.[key] ?? 'string']
+        : [[sourceId, key], 'string']
+    }
     return this.structuredFields.has(sourceId)
       ? [[sourceId, 'structured_output'], 'object']
       : [[sourceId, 'text'], 'string']
+  }
+
+  private literalValue(value: ParsedValue, line: number | null): unknown {
+    if (value.expr === 'const')
+      return value.value
+    if (value.expr === 'list')
+      return value.items.map(item => this.literalValue(item, line))
+    if (value.expr === 'dict')
+      return Object.fromEntries(Object.entries(value.entries).map(([key, item]) => [key, this.literalValue(item, line)]))
+    throw new AgentNetworkCompileError(`Expected a literal value, received ${value.raw}`, line)
   }
 
   private singleVariableSource(variable: string): string {
@@ -698,6 +1166,9 @@ class DifyGraphCompiler {
     if (this.seenEdges.has(key))
       return
     this.seenEdges.add(key)
+    const parentId = this.parentByNode.get(source)
+    const sameContainer = parentId && parentId === this.parentByNode.get(target)
+    const container = sameContainer ? this.steps.get(parentId) : null
     this.edges.push({
       id: `${source}-${sourceHandle}-${target}-${targetHandle}`,
       source,
@@ -708,8 +1179,8 @@ class DifyGraphCompiler {
       data: {
         sourceType: this.nodeTypes.get(source)!,
         targetType: this.nodeTypes.get(target)!,
-        isInIteration: false,
-        isInLoop: false,
+        isInIteration: container?.kind === 'iteration',
+        isInLoop: container?.kind === 'loop',
       },
       zIndex: 0,
     })
@@ -725,10 +1196,12 @@ class DifyGraphCompiler {
   }
 
   private applyLayout() {
-    const nodeIds = this.nodes.map(node => node.id)
+    const nodeIds = this.nodes.filter(node => !node.parentId).map(node => node.id)
     const successors = new Map(nodeIds.map(id => [id, [] as string[]]))
     const indegrees = new Map(nodeIds.map(id => [id, 0]))
     for (const edge of this.edges) {
+      if (!successors.has(edge.source) || !successors.has(edge.target))
+        continue
       const targets = successors.get(edge.source)!
       if (!targets.includes(edge.target)) {
         targets.push(edge.target)
@@ -764,6 +1237,19 @@ class DifyGraphCompiler {
         node.position = position
         node.positionAbsolute = { ...position }
       })
+    }
+    for (const parent of this.nodes.filter(node => node.data.type === BlockEnum.Iteration || node.data.type === BlockEnum.Loop)) {
+      const children = this.nodes.filter(node => node.parentId === parent.id)
+      children.forEach((child, index) => {
+        const position = { x: 24 + index * 280, y: 86 }
+        child.position = position
+        child.positionAbsolute = {
+          x: parent.position.x + position.x,
+          y: parent.position.y + position.y,
+        }
+      })
+      parent.width = Math.max(560, 80 + children.length * 280)
+      parent.height = 300
     }
   }
 }
@@ -821,4 +1307,44 @@ function comparisonOperator(operator: string, variableType: string): string {
   if (!operators[operator])
     throw new AgentNetworkCompileError(`Operator ${operator} is unsupported for ${variableType}`)
   return operators[operator]
+}
+
+function parsedValueType(value: ParsedValue): string {
+  if (value.expr === 'const') {
+    if (value.valueType === 'int' || value.valueType === 'float')
+      return 'number'
+    if (value.valueType === 'bool')
+      return 'boolean'
+    return 'string'
+  }
+  if (value.expr === 'list')
+    return 'array[string]'
+  if (value.expr === 'dict')
+    return 'object'
+  return 'string'
+}
+
+function invertCondition(condition: ParsedCondition): ParsedCondition {
+  const inverse: Record<string, string> = {
+    '==': '!=',
+    '!=': '==',
+    '>': '<=',
+    '>=': '<',
+    '<': '>=',
+    '<=': '>',
+    'in': 'not in',
+    'not in': 'in',
+    'is': 'is not',
+    'is not': 'is',
+    'truthy': 'falsy',
+    'falsy': 'truthy',
+  }
+  return {
+    ...condition,
+    logical: condition.logical === 'and' ? 'or' : condition.logical === 'or' ? 'and' : null,
+    comparisons: condition.comparisons.map(comparison => ({
+      ...comparison,
+      operator: inverse[comparison.operator] ?? comparison.operator,
+    })),
+  }
 }

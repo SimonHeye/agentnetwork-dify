@@ -52,16 +52,29 @@ export type AgentNetworkReverseResult = {
   stats: AgentNetworkReverseStats
 }
 
-export type AgentNetworkPseudocodeDeliveryInput = {
-  appId: string
-  appName?: string
-  pseudocode: string
-  diagnostics: AgentNetworkReverseDiagnostic[]
-  stats: AgentNetworkReverseStats
+export type AgentNetworkExecuteParam = string | number | boolean
+
+export type AgentNetworkExecuteInput = {
+  task: string
+  code: string
+  params?: Record<string, AgentNetworkExecuteParam>
+  need_task?: boolean
+  need_match?: boolean
+  include_agents?: boolean
 }
 
-export type AgentNetworkPseudocodeDeliveryResult = {
-  deliveryId: string
+export type AgentNetworkExecuteTrace = {
+  identifier: string
+  vertex: string
+  params: Record<string, unknown>
+  scalar: string
+}
+
+export type AgentNetworkExecuteResult = {
+  finalResult: unknown
+  context: Record<string, unknown>
+  trace: AgentNetworkExecuteTrace[]
+  calls: number
 }
 
 export class AgentNetworkCompileError extends Error {

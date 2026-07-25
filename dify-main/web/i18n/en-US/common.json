@@ -108,6 +108,7 @@
   "agentNetworkChat.emptyDescription": "Describe a task. Agent Network will return pseudocode and turn it into an editable workflow.",
   "agentNetworkChat.emptyTitle": "Plan a workflow with Agent Network",
   "agentNetworkChat.failed": "The workflow could not be generated: {{reason}}",
+  "agentNetworkChat.initialTaskMissing": "Start in Agent Network chat before executing this workflow.",
   "agentNetworkChat.placeholder": "Describe the task you want Agent Network to plan...",
   "agentNetworkChat.planning": "Waiting for Agent Network to plan the workflow...",
   "agentNetworkChat.readOnly": "You only have permission to view this workflow.",
