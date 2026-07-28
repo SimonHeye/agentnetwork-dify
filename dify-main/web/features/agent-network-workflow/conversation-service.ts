@@ -1,3 +1,5 @@
+import type { AgentNetworkExecuteResult } from './types'
+// eslint-disable-next-line no-restricted-imports
 import { get, post } from '@/service/base'
 
 export type AgentNetworkConversation = {
@@ -6,6 +8,7 @@ export type AgentNetworkConversation = {
   app_id: string
   created_by: string
   applied_message_id?: string | null
+  applied_task?: string | null
   created_at: number
   updated_at: number
 }
@@ -17,6 +20,7 @@ export type AgentNetworkApplyStatus = 'not_applied' | 'applied' | 'apply_failed'
 export type AgentNetworkMessage = {
   id: string
   conversation_id: string
+  parent_message_id?: string | null
   role: AgentNetworkMessageRole
   status: AgentNetworkMessageStatus
   apply_status?: AgentNetworkApplyStatus | null
@@ -28,7 +32,14 @@ export type AgentNetworkMessage = {
   draft_hash_after?: string | null
   error_code?: string | null
   error_message?: string | null
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown> & {
+    agent_network_execution?: {
+      final_result: unknown
+      context: Record<string, unknown>
+      trace: AgentNetworkExecuteResult['trace']
+      calls: number
+    }
+  }
   created_at: number
   updated_at: number
 }
@@ -36,13 +47,15 @@ export type AgentNetworkMessage = {
 export type AgentNetworkMessagesResponse = {
   conversation: AgentNetworkConversation
   data: AgentNetworkMessage[]
+  has_more?: boolean
 }
 
 export type CreateAgentNetworkMessagePayload = {
   role: AgentNetworkMessageRole
   status?: AgentNetworkMessageStatus
-  apply_status?: AgentNetworkApplyStatus | null
+  apply_status?: Exclude<AgentNetworkApplyStatus, 'applied'> | null
   content: string
+  parent_message_id?: string | null
   pseudocode?: string | null
   nodes_count?: number | null
   edges_count?: number | null
@@ -51,6 +64,11 @@ export type CreateAgentNetworkMessagePayload = {
   error_code?: string | null
   error_message?: string | null
   meta?: Record<string, unknown>
+}
+
+export type ApplyFailedAgentNetworkMessagePayload = {
+  error_code?: string
+  error_message: string
 }
 
 export type ApplyAgentNetworkMessagePayload = {
@@ -98,6 +116,37 @@ export async function markAgentNetworkMessageApplied(
   }>(
     `/apps/${appId}/agent-network/conversation/messages/${messageId}/apply`,
     { body: payload },
+    { silent: true },
+  )
+}
+
+export async function markAgentNetworkMessageApplyFailed(
+  appId: string,
+  messageId: string,
+  payload: ApplyFailedAgentNetworkMessagePayload,
+) {
+  return post<{ message: AgentNetworkMessage }>(
+    `/apps/${appId}/agent-network/conversation/messages/${messageId}/apply-failed`,
+    { body: payload },
+    { silent: true },
+  )
+}
+
+export async function saveAgentNetworkExecutionResult(
+  appId: string,
+  messageId: string,
+  execution: AgentNetworkExecuteResult,
+) {
+  return post<{ message: AgentNetworkMessage }>(
+    `/apps/${appId}/agent-network/conversation/messages/${messageId}/execution-result`,
+    {
+      body: {
+        final_result: execution.finalResult,
+        context: execution.context,
+        trace: execution.trace,
+        calls: execution.calls,
+      },
+    },
     { silent: true },
   )
 }

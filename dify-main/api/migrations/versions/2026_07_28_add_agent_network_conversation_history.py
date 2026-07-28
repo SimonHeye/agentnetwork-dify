@@ -23,6 +23,7 @@ def upgrade():
         sa.Column("app_id", sa.String(length=36), nullable=False),
         sa.Column("created_by", sa.String(length=36), nullable=False),
         sa.Column("applied_message_id", sa.String(length=36), nullable=True),
+        sa.Column("applied_task", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.PrimaryKeyConstraint("id", name="agent_network_conversation_pkey"),
@@ -39,6 +40,7 @@ def upgrade():
         "agent_network_messages",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("conversation_id", sa.String(length=36), nullable=False),
+        sa.Column("parent_message_id", sa.String(length=36), nullable=True),
         sa.Column("role", sa.String(length=32), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="success"),
         sa.Column("apply_status", sa.String(length=32), nullable=True),
@@ -59,6 +61,11 @@ def upgrade():
             ["agent_network_conversations.id"],
             ondelete="CASCADE",
         ),
+        sa.ForeignKeyConstraint(
+            ["parent_message_id"],
+            ["agent_network_messages.id"],
+            ondelete="SET NULL",
+        ),
     )
 
     op.create_index(
@@ -66,10 +73,16 @@ def upgrade():
         "agent_network_messages",
         ["conversation_id", "created_at"],
     )
+    op.create_index(
+        "agent_network_message_parent_idx",
+        "agent_network_messages",
+        ["parent_message_id"],
+    )
 
 
 def downgrade():
     op.drop_index("agent_network_message_conversation_idx", table_name="agent_network_messages")
+    op.drop_index("agent_network_message_parent_idx", table_name="agent_network_messages")
     op.drop_table("agent_network_messages")
 
     op.drop_index("agent_network_conversation_app_idx", table_name="agent_network_conversations")

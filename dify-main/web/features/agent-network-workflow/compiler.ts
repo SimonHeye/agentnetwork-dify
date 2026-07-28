@@ -617,17 +617,18 @@ class DifyGraphCompiler {
         continue
       for (const branchCase of step.cases) {
         for (const comparison of branchCase.condition.comparisons) {
-          if (!comparison.key)
+          const access = this.comparisonAccess(comparison)
+          if (!access)
             continue
-          const sourceId = this.singleVariableSource(comparison.variable)
+          const sourceId = this.singleVariableSource(access.variable)
           const sourceStep = this.steps.get(sourceId)
           if (sourceStep?.kind !== 'call')
-            throw new AgentNetworkCompileError(`${comparison.variable}.${comparison.key} must come from a Group call`)
+            throw new AgentNetworkCompileError(`${access.variable}.${access.key} must come from a Group call`)
           const fieldType = schemaTypeForComparison(comparison)
           const fields = this.structuredFields.get(sourceId) ?? {}
-          if (fields[comparison.key] && fields[comparison.key] !== fieldType)
-            throw new AgentNetworkCompileError(`${comparison.variable}.${comparison.key} is compared with incompatible types`)
-          fields[comparison.key] = fieldType
+          if (fields[access.key] && fields[access.key] !== fieldType)
+            throw new AgentNetworkCompileError(`${access.variable}.${access.key} is compared with incompatible types`)
+          fields[access.key] = fieldType
           this.structuredFields.set(sourceId, fields)
         }
       }
@@ -668,6 +669,7 @@ class DifyGraphCompiler {
       type: BlockEnum.LLM,
       title: override?.title ?? step.functionName,
       agent_network_group: step.functionName,
+      agent_network_variable: step.assignTo ?? undefined,
       desc: typeof normalized.desc === 'string' ? normalized.desc : '',
       selected: false,
       model,
@@ -727,6 +729,7 @@ class DifyGraphCompiler {
       ...config,
       type: BlockEnum.Code,
       title: 'Code',
+      agent_network_variable: step.assignTo ?? undefined,
       desc: '',
       selected: false,
       variables,
@@ -886,10 +889,11 @@ class DifyGraphCompiler {
   private buildCondition(branchId: string, caseId: string, index: number, comparison: ParsedComparison) {
     let selector: string[]
     let variableType: string
-    if (comparison.key) {
-      const sourceId = this.singleVariableSource(comparison.variable)
-      selector = [sourceId, 'structured_output', comparison.key]
-      variableType = this.structuredFields.get(sourceId)?.[comparison.key] ?? 'string'
+    const access = this.comparisonAccess(comparison)
+    if (access) {
+      const sourceId = this.singleVariableSource(access.variable)
+      selector = [sourceId, 'structured_output', access.key]
+      variableType = this.structuredFields.get(sourceId)?.[access.key] ?? 'string'
     }
     else {
       const sources = this.variables[comparison.variable] ?? []
@@ -913,6 +917,15 @@ class DifyGraphCompiler {
       comparison_operator: comparisonOperator(comparison.operator, variableType),
       value,
     }
+  }
+
+  private comparisonAccess(comparison: ParsedComparison): { variable: string, key: string } | null {
+    if (comparison.key)
+      return { variable: comparison.variable, key: comparison.key }
+    const binding = this.bindingsByTarget.get(comparison.variable)
+    return binding?.value.expr === 'access'
+      ? { variable: binding.value.variable, key: binding.value.key }
+      : null
   }
 
   private walkSequence(sequence: string[], incoming: Incoming[]): Incoming[] {
@@ -1083,6 +1096,8 @@ class DifyGraphCompiler {
         throw new AgentNetworkCompileError(`Variable binding cycle includes ${variable}`)
       return this.variableOutput(binding.value.name, new Set([...resolving, variable]))
     }
+    if (binding?.value.expr === 'access')
+      return this.valueOutput(binding.value)
     throw new AgentNetworkCompileError(`Variable ${variable} cannot be represented as a Dify value selector`)
   }
 
@@ -1112,7 +1127,7 @@ class DifyGraphCompiler {
     if (key) {
       return this.structuredFields.has(sourceId)
         ? [[sourceId, 'structured_output', key], this.structuredFields.get(sourceId)?.[key] ?? 'string']
-        : [[sourceId, key], 'string']
+        : [[sourceId, 'text'], 'string']
     }
     return this.structuredFields.has(sourceId)
       ? [[sourceId, 'structured_output'], 'object']

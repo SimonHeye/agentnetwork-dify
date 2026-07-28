@@ -164,6 +164,19 @@ final_result = answer.get("result")
       expect(statements[0]).toHaveProperty('body.0.call.kwargs.inputs.entries.query', { expr: 'var', name: 'task', raw: 'task', refs: ['task'] })
       expect(statements[0]).toHaveProperty('body.0.call.kwargs.outputs.entries.result.expr', 'dict')
     })
+
+    it('should normalize AgentNetwork result.value.get field access', () => {
+      const statements = parseAgentNetworkPseudocode(`
+kind_node = ReasoningGroup(task=task)
+kind = kind_node.value.get("kind")
+`)
+
+      expect(statements[1]).toMatchObject({
+        kind: 'assign',
+        target: 'kind',
+        value: { expr: 'access', variable: 'kind_node', key: 'kind' },
+      })
+    })
   })
 
   describe('Unsupported syntax', () => {

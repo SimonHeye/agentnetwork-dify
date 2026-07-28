@@ -127,6 +127,31 @@ describe('compileAgentNetworkPseudocode', () => {
       expect(nodes.calculatorgroup?.position.y).not.toBe(nodes.searchgroup?.position.y)
     })
 
+    it('should normalize AgentNetwork result.value.get conditions and final outputs', () => {
+      const result = compileAgentNetworkPseudocode(`
+kind_node = ReasoningGroup(task=task)
+kind = kind_node.value.get("kind")
+if kind == "calc":
+    calc_result = CalculatorGroup(task=task)
+    final_result = calc_result.value.get("result")
+else:
+    search_result = SearchGroup(task=task)
+    final_result = search_result.value.get("result")
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.reasoninggroup?.data.structured_output.schema.properties.kind).toEqual({ type: 'string' })
+      expect(nodes.branch_1?.data.cases[0]?.conditions[0]).toMatchObject({
+        variable_selector: ['reasoninggroup', 'structured_output', 'kind'],
+        comparison_operator: 'is',
+        value: 'calc',
+      })
+      expect(nodes.calculatorgroup?.data).toMatchObject({ agent_network_group: 'CalculatorGroup' })
+      expect(nodes.searchgroup?.data).toMatchObject({ agent_network_group: 'SearchGroup' })
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['calculatorgroup', 'text'])
+      expect(nodes.terminal_2?.data.outputs[0]?.value_selector).toEqual(['searchgroup', 'text'])
+    })
+
     it('should use numeric operators for numeric structured fields', () => {
       const result = compileAgentNetworkPseudocode(`
 probe = ReasoningGroup(task=task)

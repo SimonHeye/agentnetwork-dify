@@ -1,0 +1,17 @@
+services:
+  api:
+    image: agentnetwork-dify-api:chat-history
+    ports:
+      - "5001:5001"
+  web:
+    image: agentnetwork-dify-web:main
+    ports:
+      - "3000:3000"
+    environment:
+      CONSOLE_API_URL: http://localhost:5001
+      SERVER_CONSOLE_API_URL: http://api:5001
+      APP_API_URL: http://localhost:5001
+      AGENT_NETWORK_PLAN_URL: http://host.docker.internal:18080/service/plan_code
+      AGENT_NETWORK_PLAN_API_KEY: ${AGENT_NETWORK_PLAN_API_KEY:-}
+      AGENT_NETWORK_EXECUTE_URL: http://host.docker.internal:18080/service/execute_code
+      AGENT_NETWORK_EXECUTE_API_KEY: ${AGENT_NETWORK_PSEUDOCODE_API_KEY:-}

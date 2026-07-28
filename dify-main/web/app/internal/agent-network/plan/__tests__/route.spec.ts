@@ -52,13 +52,17 @@ describe('POST /internal/agent-network/plan', () => {
         'Authorization': 'Bearer local-test-token',
         'Content-Type': 'application/json',
       }),
-      body: JSON.stringify({
-        task: 'Build a search workflow',
-        include_agents: true,
-        model: 'deepseek-chat',
-        extra_instructions: 'Only use SearchGroup',
-      }),
     }))
+    const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
+    expect(payload).toMatchObject({
+      task: 'Build a search workflow',
+      include_agents: true,
+      model: 'deepseek-chat',
+    })
+    expect(payload.extra_instructions).toContain('converted into a Dify workflow graph')
+    expect(payload.extra_instructions).toContain('enumerate(iterator)')
+    expect(payload.extra_instructions).toContain('Do not use the json module')
+    expect(payload.extra_instructions).toContain('Only use SearchGroup')
   })
 
   it('should send the documented include_agents default without inventing fields', async () => {
@@ -69,7 +73,10 @@ describe('POST /internal/agent-network/plan', () => {
     await POST(createRequest({ appId: 'app-1', task: 'task' }))
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
-    expect(requestBody).toEqual({ task: 'task', include_agents: false })
+    expect(requestBody).toMatchObject({ task: 'task', include_agents: false })
+    expect(requestBody.extra_instructions).toContain('never access .value, .raw, or .get()')
+    expect(requestBody.extra_instructions).toContain('range(POSITIVE_INTEGER)')
+    expect(requestBody.extra_instructions).toContain('Assign the final output to final_result')
   })
 
   it('should reject cross-origin browser requests', async () => {

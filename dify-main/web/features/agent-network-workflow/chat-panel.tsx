@@ -1,23 +1,30 @@
 'use client'
 
+import type { AgentNetworkConversation, AgentNetworkMessage } from './conversation-service'
+import type { AgentNetworkExecuteResult } from './types'
 import { Button } from '@langgenius/dify-ui/button'
 import { cn } from '@langgenius/dify-ui/cn'
 import { Textarea } from '@langgenius/dify-ui/textarea'
+import { toast } from '@langgenius/dify-ui/toast'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore as useAppStore } from '@/app/components/app/store'
+import { useNodesSyncDraft } from '@/app/components/workflow/hooks/use-nodes-sync-draft'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
 import { usePathname, useRouter } from '@/next/navigation'
+import { AgentNetworkExecutionResult } from './execution-result'
+import { executeAgentNetworkCode } from './execute-code'
 import {
+
   clearAgentNetworkMessages,
   createAgentNetworkMessage,
   fetchAgentNetworkMessages,
   markAgentNetworkMessageApplied,
-  type AgentNetworkConversation,
-  type AgentNetworkMessage,
+  markAgentNetworkMessageApplyFailed,
+  saveAgentNetworkExecutionResult,
 } from './conversation-service'
 import { requestAgentNetworkPlan } from './request-plan'
-import { useAgentNetworkInitialTasks } from './storage'
+import { formatAgentNetworkFinalResult } from './format-execute-result'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type Message = {
@@ -33,6 +40,7 @@ type Message = {
   draft_hash_after?: string | null
   error_code?: string | null
   error_message?: string | null
+  executionResult?: AgentNetworkExecuteResult
   created_at?: number
   updated_at?: number
 }
@@ -51,6 +59,14 @@ function fromPersistedMessage(message: AgentNetworkMessage): Message {
     draft_hash_after: message.draft_hash_after,
     error_code: message.error_code,
     error_message: message.error_message,
+    executionResult: message.meta?.agent_network_execution
+      ? {
+          finalResult: message.meta.agent_network_execution.final_result,
+          context: message.meta.agent_network_execution.context,
+          trace: message.meta.agent_network_execution.trace,
+          calls: message.meta.agent_network_execution.calls,
+        }
+      : undefined,
     created_at: message.created_at,
     updated_at: message.updated_at,
   }
@@ -61,29 +77,35 @@ export function AgentNetworkChatPanel() {
   const pathname = usePathname()
   const router = useRouter()
   const appId = useAppStore(state => state.appDetail?.id)
+  const { doSyncWorkflowDraft } = useNodesSyncDraft()
   const { nodesReadOnly } = useNodesReadOnly()
-  const { applyPseudocode } = useAgentNetworkWorkflow()
-  const [, setInitialTasks] = useAgentNetworkInitialTasks()
+  const { applyPseudocode, exportPseudocode } = useAgentNetworkWorkflow()
   const [conversation, setConversation] = useState<AgentNetworkConversation | null>(null)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [applyingMessageId, setApplyingMessageId] = useState<string | null>(null)
+  const [executingMessageId, setExecutingMessageId] = useState<string | null>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const isOpen = pathname.endsWith('/agent-network')
 
-  const isBusy = isSubmitting || !!applyingMessageId
+  const isBusy = isSubmitting || !!applyingMessageId || !!executingMessageId
 
   const loadHistory = useCallback(async () => {
     if (!appId)
       return
 
     setIsLoadingHistory(true)
+    setHistoryError(null)
     try {
       const result = await fetchAgentNetworkMessages(appId)
       setConversation(result.conversation)
       setMessages(result.data.map(fromPersistedMessage))
+    }
+    catch (error) {
+      setHistoryError(error instanceof Error ? error.message : String(error))
     }
     finally {
       setIsLoadingHistory(false)
@@ -131,9 +153,24 @@ export function AgentNetworkChatPanel() {
     if (!task || !appId || isSubmitting || nodesReadOnly)
       return
 
+    const userMessageId = crypto.randomUUID()
     const assistantMessageId = crypto.randomUUID()
+    let savedUserMessageId: string | undefined
+
     setInput('')
     setIsSubmitting(true)
+    appendMessage({
+      id: userMessageId,
+      role: 'user',
+      content: task,
+      state: 'success',
+    })
+    appendMessage({
+      id: assistantMessageId,
+      role: 'assistant',
+      content: t('agentNetworkChat.planning'),
+      state: 'pending',
+    })
 
     try {
       const savedUserMessage = await createAgentNetworkMessage(appId, {
@@ -141,32 +178,17 @@ export function AgentNetworkChatPanel() {
         status: 'success',
         content: task,
       })
+      savedUserMessageId = savedUserMessage.id
+      replaceMessage(userMessageId, fromPersistedMessage(savedUserMessage))
 
-      appendMessage(fromPersistedMessage(savedUserMessage))
-      appendMessage({
-        id: assistantMessageId,
-        role: 'assistant',
-        content: t('agentNetworkChat.planning'),
-        state: 'pending',
-      })
-
-      /**
-       * 注意：
-       * 这里仍然保持原来的逻辑，只把当前 task 发给 Agent Network。
-       * 现在还没有接真实多轮对话上下文，所以不要把历史 messages 传进去。
-       */
       const plan = await requestAgentNetworkPlan({ appId, task })
-
-      setInitialTasks(current => current?.[appId]?.initialTask
-        ? current
-        : { ...(current ?? {}), [appId]: { initialTask: task } })
-
       const savedAssistantMessage = await createAgentNetworkMessage(appId, {
         role: 'assistant',
         status: 'success',
         apply_status: 'not_applied',
-        content: 'Agent Network 已返回规划，请确认是否应用到画布。',
+        content: t('agentNetworkChat.planReady'),
         pseudocode: plan.pseudocode,
+        parent_message_id: savedUserMessage.id,
       })
 
       replaceMessage(assistantMessageId, fromPersistedMessage(savedAssistantMessage))
@@ -175,17 +197,15 @@ export function AgentNetworkChatPanel() {
       const reason = error instanceof Error ? error.message : String(error)
 
       try {
-        if (appId) {
-          const savedErrorMessage = await createAgentNetworkMessage(appId, {
-            role: 'error',
-            status: 'failed',
-            content: t('agentNetworkChat.failed', { reason }),
-            error_code: reason,
-            error_message: reason,
-          })
-
-          replaceMessage(assistantMessageId, fromPersistedMessage(savedErrorMessage))
-        }
+        const savedErrorMessage = await createAgentNetworkMessage(appId, {
+          role: 'error',
+          status: 'failed',
+          content: t('agentNetworkChat.failed', { reason }),
+          parent_message_id: savedUserMessageId,
+          error_code: reason,
+          error_message: reason,
+        })
+        replaceMessage(assistantMessageId, fromPersistedMessage(savedErrorMessage))
       }
       catch {
         replaceMessage(assistantMessageId, {
@@ -202,69 +222,143 @@ export function AgentNetworkChatPanel() {
       setIsSubmitting(false)
     }
   }
-
   const applyMessageToCanvas = async (message: Message) => {
     if (!appId || !message.pseudocode || nodesReadOnly || applyingMessageId)
       return
 
-    const confirmed = window.confirm('这会用该轮伪代码更新当前画布并保存草稿，是否继续？')
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(t('agentNetworkChat.applyConfirm'))
     if (!confirmed)
       return
 
     setApplyingMessageId(message.id)
 
     try {
-      const result = await applyPseudocode(message.pseudocode, {
-        preservePositions: false,
-        saveDraft: true,
-      })
-
-      const response = await markAgentNetworkMessageApplied(appId, message.id, {
-        nodes_count: result.graph.nodes.length,
-        edges_count: result.graph.edges.length,
-        draft_hash_before: message.draft_hash_before ?? null,
-        draft_hash_after: null,
-      })
-
-      setConversation(response.conversation)
-
-      setMessages(current => current.map((item) => {
-        if (item.id === response.message.id)
-          return fromPersistedMessage(response.message)
-
-        if (item.apply_status === 'applied')
-          return { ...item, apply_status: 'not_applied' }
-
-        return item
-      }))
-    }
-    catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-
+      let result
       try {
-        const savedErrorMessage = await createAgentNetworkMessage(appId, {
-          role: 'error',
-          status: 'failed',
-          content: `应用到画布失败：${reason}`,
-          error_code: reason,
-          error_message: reason,
+        result = await applyPseudocode(message.pseudocode, {
+          preservePositions: false,
+          saveDraft: true,
         })
-
-        appendMessage(fromPersistedMessage(savedErrorMessage))
       }
-      catch {
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        try {
+          const response = await markAgentNetworkMessageApplyFailed(appId, message.id, {
+            error_code: 'APPLY_FAILED',
+            error_message: reason,
+          })
+          replaceMessage(message.id, fromPersistedMessage(response.message))
+        }
+        catch {
+          replaceMessage(message.id, {
+            ...message,
+            apply_status: 'apply_failed',
+            error_code: 'APPLY_FAILED',
+            error_message: reason,
+          })
+        }
         appendMessage({
           id: crypto.randomUUID(),
           role: 'error',
-          content: `应用到画布失败：${reason}`,
+          content: t('agentNetworkChat.applyFailed', { reason }),
           state: 'error',
-          error_code: reason,
+          error_code: 'APPLY_FAILED',
           error_message: reason,
         })
+        return
+      }
+
+      try {
+        const response = await markAgentNetworkMessageApplied(appId, message.id, {
+          nodes_count: result.graph.nodes.length,
+          edges_count: result.graph.edges.length,
+          draft_hash_before: message.draft_hash_before ?? null,
+          draft_hash_after: null,
+        })
+
+        setConversation(response.conversation)
+        setMessages(current => current.map((item) => {
+          if (item.id === response.message.id)
+            return fromPersistedMessage(response.message)
+          if (item.apply_status === 'applied')
+            return { ...item, apply_status: 'not_applied' }
+          return item
+        }))
+      }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'error',
+          content: t('agentNetworkChat.applyStateSaveFailed', { reason }),
+          state: 'error',
+          error_code: 'APPLY_STATE_SAVE_FAILED',
+          error_message: reason,
+        })
+        try {
+          await loadHistory()
+        }
+        catch {
+          // The canvas is already saved. A later refresh can reconcile database state.
+        }
       }
     }
     finally {
       setApplyingMessageId(null)
+    }
+  }
+  const executeCurrentCanvas = async (message: Message) => {
+    const executeTask = conversation?.applied_task?.trim()
+    if (
+      !appId
+      || !executeTask
+      || appliedMessageId !== message.id
+      || nodesReadOnly
+      || executingMessageId
+    )
+      return
+
+    setExecutingMessageId(message.id)
+    try {
+      let draftSaved = false
+      await doSyncWorkflowDraft(false, {
+        onSuccess: () => {
+          draftSaved = true
+        },
+      })
+      if (!draftSaved)
+        throw new Error('DIFY_DRAFT_SAVE_FAILED')
+
+      const generated = exportPseudocode()
+      if (!generated.source)
+        throw new Error(t('api.actionFailed'))
+
+      const execution = await executeAgentNetworkCode({
+        task: executeTask,
+        code: generated.source,
+        params: {},
+        need_task: false,
+        need_match: false,
+        include_agents: true,
+      })
+
+      replaceMessage(message.id, {
+        ...message,
+        executionResult: execution,
+      })
+      const response = await saveAgentNetworkExecutionResult(appId, message.id, execution)
+      replaceMessage(message.id, fromPersistedMessage(response.message))
+
+      const finalResult = formatAgentNetworkFinalResult(execution.finalResult)
+      toast.success(finalResult || t('api.success'))
+    }
+    catch (error) {
+      const reason = error instanceof Error ? error.message : t('api.actionFailed')
+      toast.error(reason === 'DIFY_DRAFT_SAVE_FAILED' ? t('api.actionFailed') : reason)
+    }
+    finally {
+      setExecutingMessageId(null)
     }
   }
 
@@ -272,15 +366,21 @@ export function AgentNetworkChatPanel() {
     if (!appId || isBusy || !hasMessages)
       return
 
-    const confirmed = window.confirm('确定清空当前 Agent Network 对话记录吗？这不会删除当前画布。')
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(t('agentNetworkChat.clearConfirm'))
     if (!confirmed)
       return
 
-    const result = await clearAgentNetworkMessages(appId)
-    setConversation(result.conversation)
-    setMessages([])
+    try {
+      const result = await clearAgentNetworkMessages(appId)
+      setConversation(result.conversation)
+      setMessages([])
+      setHistoryError(null)
+    }
+    catch (error) {
+      setHistoryError(error instanceof Error ? error.message : String(error))
+    }
   }
-
   const getDisplayContent = (message: Message) => {
     const isApplied = appliedMessageId === message.id || message.apply_status === 'applied'
 
@@ -347,6 +447,12 @@ export function AgentNetworkChatPanel() {
           </div>
         )}
 
+        {!isLoadingHistory && historyError && (
+          <div className="mb-4 rounded-lg bg-state-destructive-hover px-3 py-2 system-xs-regular text-text-destructive">
+            {t('agentNetworkChat.historyFailed', { reason: historyError })}
+          </div>
+        )}
+
         {!isLoadingHistory && messages.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-components-icon-bg-blue-solid text-text-primary-on-surface">
@@ -396,6 +502,10 @@ export function AgentNetworkChatPanel() {
                       {getDisplayContent(message)}
                     </div>
 
+                    {message.executionResult && (
+                      <AgentNetworkExecutionResult result={message.executionResult.finalResult} />
+                    )}
+
                     {message.pseudocode && !isPending && (
                       <details className="mt-2 text-left">
                         <summary className="cursor-pointer system-xs-medium text-text-tertiary hover:text-text-secondary">
@@ -408,16 +518,18 @@ export function AgentNetworkChatPanel() {
                     )}
 
                     {canApply && (
-                      <div className="mt-2 flex items-center gap-2 text-left">
-                        {isApplied ? (
-                          <span className="rounded-full bg-state-success-bg px-2 py-1 system-xs-medium text-state-success-text">
-                            已应用到当前画布
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-background-section-burn px-2 py-1 system-xs-medium text-text-tertiary">
-                            尚未应用
-                          </span>
-                        )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-left">
+                        {isApplied
+                          ? (
+                              <span className="rounded-full bg-state-success-hover px-2 py-1 system-xs-medium text-text-success">
+                                已应用到当前画布
+                              </span>
+                            )
+                          : (
+                              <span className="rounded-full bg-background-section-burn px-2 py-1 system-xs-medium text-text-tertiary">
+                                尚未应用
+                              </span>
+                            )}
 
                         <button
                           type="button"
@@ -433,12 +545,27 @@ export function AgentNetworkChatPanel() {
                               ? '重新应用'
                               : '应用到画布'}
                         </button>
+
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="small"
+                          loading={executingMessageId === message.id}
+                          disabled={!isApplied || nodesReadOnly || isBusy}
+                          onClick={() => {
+                            void executeCurrentCanvas(message)
+                          }}
+                        >
+                          <span className="mr-1 i-ri-play-fill size-3.5" aria-hidden="true" />
+                          {t('operation.execute')}
+                        </Button>
                       </div>
                     )}
 
                     {message.apply_status === 'apply_failed' && message.error_message && (
-                      <div className="mt-2 rounded-lg bg-state-destructive-bg px-3 py-2 text-left system-xs-regular text-text-destructive">
-                        应用失败：{message.error_message}
+                      <div className="mt-2 rounded-lg bg-state-destructive-hover px-3 py-2 text-left system-xs-regular text-text-destructive">
+                        应用失败：
+                        {message.error_message}
                       </div>
                     )}
                   </div>

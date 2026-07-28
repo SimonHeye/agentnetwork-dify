@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { readAgentNetworkErrorMessage } from '../error-response'
 import { isSameOriginRequest } from '../same-origin'
 
 const executeParamSchema = z.union([z.string(), z.number(), z.boolean()])
@@ -16,7 +17,8 @@ const traceSchema = z.object({
   identifier: z.string(),
   vertex: z.string(),
   params: z.record(z.string(), z.unknown()),
-  scalar: z.string(),
+  scalar: z.union([z.string(), z.number(), z.boolean()])
+    .transform(value => typeof value === 'string' ? value : String(value)),
 }).passthrough()
 
 const agentNetworkResponseSchema = z.object({
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
       signal: AbortSignal.timeout(resolveTimeout()),
     })
     if (!response.ok) {
-      const message = await readErrorMessage(response)
+      const message = await readAgentNetworkErrorMessage(response)
       return json({
         code: 'AGENT_NETWORK_EXECUTION_FAILED',
         ...(message ? { message } : {}),
@@ -89,16 +91,6 @@ export async function POST(request: Request) {
 async function readJson(request: Request | Response): Promise<unknown> {
   try {
     return await request.json()
-  }
-  catch {
-    return null
-  }
-}
-
-async function readErrorMessage(response: Response): Promise<string | null> {
-  try {
-    const message = (await response.text()).trim()
-    return message ? message.slice(0, 10_000) : null
   }
   catch {
     return null

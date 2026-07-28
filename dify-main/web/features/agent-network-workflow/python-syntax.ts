@@ -360,8 +360,9 @@ class PythonSubsetParser {
     if (callee?.name !== 'MemberExpression' || argumentList?.name !== 'ArgList')
       return null
     const memberChildren = this.children(callee)
+    const resultVariable = this.resultVariable(memberChildren[0])
     if (
-      memberChildren[0]?.name !== 'VariableName'
+      !resultVariable
       || memberChildren[2]?.name !== 'PropertyName'
       || this.text(memberChildren[2]) !== 'get'
     ) {
@@ -373,8 +374,24 @@ class PythonSubsetParser {
     const key = this.decodeString(segments[0][0])
     if (key === null)
       return null
-    const variable = this.text(memberChildren[0])
+    const variable = this.text(resultVariable)
     return { expr: 'access', variable, key, raw: this.text(node), refs: [variable] }
+  }
+
+  private resultVariable(node: SyntaxNode | undefined): SyntaxNode | null {
+    if (node?.name === 'VariableName')
+      return node
+    if (node?.name !== 'MemberExpression')
+      return null
+    const children = this.children(node)
+    if (
+      children[0]?.name === 'VariableName'
+      && children[2]?.name === 'PropertyName'
+      && this.text(children[2]) === 'value'
+    ) {
+      return children[0]
+    }
+    return null
   }
 
   private parseUnaryNumber(node: SyntaxNode): ParsedValue {

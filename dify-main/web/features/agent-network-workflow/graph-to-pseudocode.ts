@@ -272,6 +272,7 @@ const COMMON_CONFIG_KEYS = new Set([
   'iteration_id',
   'isInLoop',
   'loop_id',
+  'agent_network_variable',
 ])
 
 class ReverseAbort extends Error {}
@@ -437,7 +438,10 @@ class GraphToPseudocodeCompiler {
         continue
 
       const hints = endHints.get(node.id) ?? []
-      let variable = hints[0]
+      const preservedVariable = asRecord(node.data).agent_network_variable
+      let variable = typeof preservedVariable === 'string' && isPythonIdentifier(preservedVariable)
+        ? preservedVariable
+        : hints[0]
       if (hints.length > 1) {
         this.warn(
           'MULTIPLE_OUTPUT_NAMES',
@@ -709,32 +713,40 @@ class GraphToPseudocodeCompiler {
     const data = asRecord(node.data)
     const variable = this.variableNames.get(node.id)!
     const callable = this.functionNames.get(node.id) ?? 'LLM'
+    const isGroup = isConfiguredAgentNetworkGroup(data.agent_network_group)
     const model = asRecord(data.model)
     const args: [string, string][] = [
       ['task', this.renderInterpolatedValue(data.prompt_template, node)],
     ]
 
-    addDefinedArg(args, 'model', model.name)
-    addDefinedArg(args, 'provider', model.provider)
-    if (Object.keys(asRecord(model.completion_params)).length)
-      args.push(['completion_params', pythonValue(model.completion_params)])
+    if (!isGroup) {
+      addDefinedArg(args, 'model', model.name)
+      addDefinedArg(args, 'provider', model.provider)
+      if (Object.keys(asRecord(model.completion_params)).length)
+        args.push(['completion_params', pythonValue(model.completion_params)])
+    }
 
     const skills = this.readSkills(node)
     if (skills.length)
       args.push(['skills', pythonValue(skills)])
 
-    this.appendErrorAndRetryArguments(node, args)
-    const config = this.semanticConfig(node, new Set([
-      'agent_network_group',
-      'model',
-      'prompt_template',
-      'skills',
-      'error_strategy',
-      'retry_config',
-      'default_value',
-    ]))
-    if (Object.keys(config).length)
-      args.push(['config', pythonValue(config)])
+    if (isGroup)
+      this.warnForOmittedGroupExecutionControls(node)
+    else
+      this.appendErrorAndRetryArguments(node, args)
+    if (!isGroup) {
+      const config = this.semanticConfig(node, new Set([
+        'agent_network_group',
+        'model',
+        'prompt_template',
+        'skills',
+        'error_strategy',
+        'retry_config',
+        'default_value',
+      ]))
+      if (Object.keys(config).length)
+        args.push(['config', pythonValue(config)])
+    }
 
     this.emitAssignedCall(variable, callable, args, indent, lines)
   }
@@ -1318,7 +1330,7 @@ class GraphToPseudocodeCompiler {
     if (!selector.length)
       this.fail('CONDITION_SELECTOR', 'Condition is missing variable_selector', nodeId)
     let left = this.selectorExpression(selector, nodeId)
-    if (typeof condition.key === 'string' && condition.key)
+    if (typeof condition.key === 'string' && condition.key && !this.isScalarizedGroupSelector(selector))
       left = `${left}.get(${pythonString(condition.key)})`
 
     const operator = typeof condition.comparison_operator === 'string'
@@ -1472,6 +1484,17 @@ class GraphToPseudocodeCompiler {
     return this.selectorExpression(selector, nodeId)
   }
 
+  private isScalarizedGroupSelector(selector: string[]): boolean {
+    const source = this.nodesById.get(selector[0] ?? '')
+    if (source?.data.type !== BlockEnum.LLM)
+      return false
+    if (!isConfiguredAgentNetworkGroup(asRecord(source.data).agent_network_group))
+      return false
+    return selector.length === 1
+      || selector[1] === 'text'
+      || selector[1] === 'structured_output'
+  }
+
   private selectorExpression(selector: string[], nodeId: string): string {
     const sourceId = selector[0]
     if (!sourceId)
@@ -1513,7 +1536,7 @@ class GraphToPseudocodeCompiler {
     const path = selector.slice(1)
     if (source.data.type === BlockEnum.LLM) {
       const isGroup = isConfiguredAgentNetworkGroup(asRecord(source.data).agent_network_group)
-      if (isGroup && (path[0] === 'text' || path[0] === 'structured_output' || path.length === 0))
+      if (isGroup)
         return variable
       return appendSelectorPath(variable, path)
     }
@@ -1560,6 +1583,23 @@ class GraphToPseudocodeCompiler {
       if (data.error_strategy === 'default-value')
         args.push(['default', pythonValue(data.default_value)])
     }
+  }
+
+  private warnForOmittedGroupExecutionControls(node: Node) {
+    const data = asRecord(node.data)
+    const retry = asRecord(data.retry_config)
+    const omitted: string[] = []
+    if (retry.retry_enabled)
+      omitted.push('retry')
+    if (typeof data.error_strategy === 'string' && data.error_strategy !== 'fail-branch')
+      omitted.push('error strategy')
+    if (!omitted.length)
+      return
+    this.warn(
+      'GROUP_EXECUTION_CONTROL_OMITTED',
+      `${omitted.join(' and ')} are Dify runtime controls and were not sent as AgentNetwork node arguments`,
+      node.id,
+    )
   }
 
   private semanticConfig(node: Node, excluded: Set<string>): JsonRecord {

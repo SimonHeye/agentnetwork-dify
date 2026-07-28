@@ -12,10 +12,13 @@ import { toast } from '@langgenius/dify-ui/toast'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNodesSyncDraft } from '@/app/components/workflow/hooks/use-nodes-sync-draft'
+import {
+  fetchAgentNetworkConversation,
+  saveAgentNetworkExecutionResult,
+} from './conversation-service'
 import { executeAgentNetworkCode } from './execute-code'
+import { AgentNetworkExecutionResult } from './execution-result'
 import { formatAgentNetworkFinalResult } from './format-execute-result'
-import { resolveAgentNetworkExecuteTask } from './resolve-execute-task'
-import { useAgentNetworkInitialTasks } from './storage'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type AgentNetworkPseudocodeTriggerProps = {
@@ -27,7 +30,6 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const { t } = useTranslation('common')
   const { doSyncWorkflowDraft } = useNodesSyncDraft()
   const { exportPseudocode } = useAgentNetworkWorkflow()
-  const [taskContexts] = useAgentNetworkInitialTasks()
   const [open, setOpen] = useState(false)
   const [result, setResult] = useState<AgentNetworkReverseResult | null>(null)
   const [executionResult, setExecutionResult] = useState<AgentNetworkExecuteResult | null>(null)
@@ -75,14 +77,13 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const handleExecute = useCallback(async () => {
     if (!appId || activeAction)
       return
-    const executeTask = resolveAgentNetworkExecuteTask(taskContexts?.[appId])
-    if (!executeTask) {
-      toast.error(t('agentNetworkChat.initialTaskMissing'))
-      return
-    }
-
     setActiveAction('execute')
     try {
+      const conversation = await fetchAgentNetworkConversation(appId)
+      const executeTask = conversation.applied_task?.trim()
+      if (!executeTask || !conversation.applied_message_id)
+        throw new Error(t('agentNetworkChat.initialTaskMissing'))
+
       let draftSaved = false
       await doSyncWorkflowDraft(false, {
         onSuccess: () => {
@@ -110,6 +111,11 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
       })
       setExecutionResult(nextExecutionResult)
       setOpen(true)
+      await saveAgentNetworkExecutionResult(
+        appId,
+        conversation.applied_message_id,
+        nextExecutionResult,
+      )
       const finalResult = formatAgentNetworkFinalResult(nextExecutionResult.finalResult)
       toast.success(finalResult || t('api.success'))
     }
@@ -120,7 +126,7 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
     finally {
       setActiveAction(null)
     }
-  }, [activeAction, appId, doSyncWorkflowDraft, exportPseudocode, t, taskContexts, workflowName])
+  }, [activeAction, appId, doSyncWorkflowDraft, exportPseudocode, t, workflowName])
 
   const diagnostics = result?.diagnostics ?? []
 
@@ -158,16 +164,13 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
 
             {executionResult && (
               <section className={result?.source ? 'mt-5' : undefined}>
-                <div className="mb-2 system-sm-semibold text-text-secondary">final_result</div>
-                <pre className="overflow-x-auto rounded-lg bg-background-section-burn p-4 font-mono text-xs leading-5 text-text-primary">
-                  <code>{formatAgentNetworkFinalResult(executionResult.finalResult) || 'null'}</code>
-                </pre>
+                <AgentNetworkExecutionResult result={executionResult.finalResult} />
                 {executionResult.trace.length > 0 && (
                   <div className="mt-5">
                     <div className="mb-2 system-sm-semibold text-text-secondary">trace</div>
                     <ol className="space-y-2">
-                      {executionResult.trace.map((item, index) => (
-                        <li key={`${index}-${item.identifier}-${item.vertex}`} className="rounded-lg bg-background-section px-4 py-3 font-mono text-xs text-text-secondary">
+                      {executionResult.trace.map(item => (
+                        <li key={`${item.identifier}-${item.vertex}-${item.scalar}`} className="rounded-lg bg-background-section px-4 py-3 font-mono text-xs text-text-secondary">
                           <span className="font-semibold text-text-primary">{item.identifier}</span>
                           <span>{`: ${item.scalar}`}</span>
                         </li>

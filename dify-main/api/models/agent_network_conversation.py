@@ -35,6 +35,8 @@ class AgentNetworkConversation(db.Model):
 
     # 当前已经应用到画布的 assistant message id
     applied_message_id = db.Column(db.String(36), nullable=True)
+    # execute_code must reuse the plan_code task that produced the active canvas.
+    applied_task = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -46,6 +48,7 @@ class AgentNetworkConversation(db.Model):
             "app_id": self.app_id,
             "created_by": self.created_by,
             "applied_message_id": self.applied_message_id,
+            "applied_task": self.applied_task,
             "created_at": int(self.created_at.timestamp()) if self.created_at else None,
             "updated_at": int(self.updated_at.timestamp()) if self.updated_at else None,
         }
@@ -70,6 +73,7 @@ class AgentNetworkMessage(db.Model):
     __table_args__ = (
         db.PrimaryKeyConstraint("id", name="agent_network_message_pkey"),
         db.Index("agent_network_message_conversation_idx", "conversation_id", "created_at"),
+        db.Index("agent_network_message_parent_idx", "parent_message_id"),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=new_uuid)
@@ -77,6 +81,13 @@ class AgentNetworkMessage(db.Model):
         db.String(36),
         db.ForeignKey("agent_network_conversations.id", ondelete="CASCADE"),
         nullable=False,
+    )
+
+    # The user task message associated with an assistant or error message.
+    parent_message_id = db.Column(
+        db.String(36),
+        db.ForeignKey("agent_network_messages.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     role = db.Column(db.String(32), nullable=False)
@@ -111,6 +122,7 @@ class AgentNetworkMessage(db.Model):
         return {
             "id": self.id,
             "conversation_id": self.conversation_id,
+            "parent_message_id": self.parent_message_id,
             "role": self.role,
             "status": self.status,
             "apply_status": self.apply_status,

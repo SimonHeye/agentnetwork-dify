@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { readAgentNetworkErrorMessage } from '../error-response'
 import { isSameOriginRequest } from '../same-origin'
 
 const requestSchema = z.object({
@@ -16,6 +17,15 @@ const agentNetworkResponseSchema = z.object({
 const DEFAULT_TIMEOUT_MS = 60_000
 const MIN_TIMEOUT_MS = 1_000
 const MAX_TIMEOUT_MS = 120_000
+const DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS = [
+  'The pseudocode will be converted into a Dify workflow graph.',
+  'AgentNetwork node calls return scalarized PseudoResult strings. Compare assigned variables directly; never access .value, .raw, or .get() on a node result.',
+  'Do not use the json module. Use scalarized node results directly.',
+  'For iteration, use exactly: results = []; for index, item in enumerate(iterator): ...; results.append(one_node_result).',
+  'For a counted loop, use exactly: for index in range(POSITIVE_INTEGER): ... . Avoid while loops because their runtime semantics cannot be preserved by Dify.',
+  'Do not use import, def, class, lambda, file, network, or system operations.',
+  'Assign the final output to final_result.',
+].join('\n')
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request))
@@ -47,13 +57,13 @@ export async function POST(request: Request) {
         task: input.data.task,
         include_agents: input.data.includeAgents,
         ...(input.data.model ? { model: input.data.model } : {}),
-        ...(input.data.extraInstructions ? { extra_instructions: input.data.extraInstructions } : {}),
+        extra_instructions: mergeCompatibilityInstructions(input.data.extraInstructions),
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(resolveTimeout()),
     })
     if (!response.ok) {
-      const message = await readErrorMessage(response)
+      const message = await readAgentNetworkErrorMessage(response)
       return json({ code: 'AGENT_NETWORK_REJECTED', ...(message ? { message } : {}) }, 502)
     }
 
@@ -82,15 +92,10 @@ async function readJson(request: Request | Response): Promise<unknown> {
   }
 }
 
-
-async function readErrorMessage(response: Response): Promise<string | null> {
-  try {
-    const message = (await response.text()).trim()
-    return message ? message.slice(0, 10_000) : null
-  }
-  catch {
-    return null
-  }
+function mergeCompatibilityInstructions(extraInstructions?: string): string {
+  return extraInstructions
+    ? `${DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS}\n\nAdditional planning constraints:\n${extraInstructions}`
+    : DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS
 }
 function resolveHttpUrl(value: string | undefined): string | null {
   if (!value?.trim())

@@ -8,6 +8,10 @@ from models.agent_network_conversation import AgentNetworkConversation, AgentNet
 from models.model import App
 
 
+DEFAULT_MESSAGE_LIMIT = 200
+MAX_MESSAGE_LIMIT = 500
+
+
 class AgentNetworkConversationService:
     """
     Agent Network 对话持久化服务。
@@ -44,15 +48,21 @@ class AgentNetworkConversationService:
         return conversation
 
     @staticmethod
-    def list_messages(app_model: App, account) -> list[AgentNetworkMessage]:
+    def list_messages(
+        app_model: App, account, limit: int = DEFAULT_MESSAGE_LIMIT
+    ) -> tuple[list[AgentNetworkMessage], bool]:
         conversation = AgentNetworkConversationService.get_or_create_conversation(app_model, account)
+        bounded_limit = max(1, min(limit, MAX_MESSAGE_LIMIT))
 
-        return (
+        newest_first = (
             db.session.query(AgentNetworkMessage)
             .filter(AgentNetworkMessage.conversation_id == conversation.id)
-            .order_by(AgentNetworkMessage.created_at.asc())
+            .order_by(AgentNetworkMessage.created_at.desc(), AgentNetworkMessage.id.desc())
+            .limit(bounded_limit + 1)
             .all()
         )
+        has_more = len(newest_first) > bounded_limit
+        return list(reversed(newest_first[:bounded_limit])), has_more
 
     @staticmethod
     def create_message(
@@ -61,6 +71,7 @@ class AgentNetworkConversationService:
         role: str,
         content: str,
         status: str = "success",
+        parent_message_id: str | None = None,
         apply_status: str | None = None,
         pseudocode: str | None = None,
         nodes_count: int | None = None,
@@ -73,8 +84,22 @@ class AgentNetworkConversationService:
     ) -> AgentNetworkMessage:
         conversation = AgentNetworkConversationService.get_or_create_conversation(app_model, account)
 
+        if parent_message_id:
+            parent_message = (
+                db.session.query(AgentNetworkMessage)
+                .filter(
+                    AgentNetworkMessage.id == parent_message_id,
+                    AgentNetworkMessage.conversation_id == conversation.id,
+                    AgentNetworkMessage.role == "user",
+                )
+                .first()
+            )
+            if not parent_message:
+                raise ValueError("Parent user message not found")
+
         message = AgentNetworkMessage(
             conversation_id=conversation.id,
+            parent_message_id=parent_message_id,
             role=role,
             status=status,
             apply_status=apply_status,
@@ -123,6 +148,21 @@ class AgentNetworkConversationService:
         if not message.pseudocode:
             raise ValueError("Agent Network message has no pseudocode to apply")
 
+        if not message.parent_message_id:
+            raise ValueError("Agent Network message is not linked to its user task")
+
+        task_message = (
+            db.session.query(AgentNetworkMessage)
+            .filter(
+                AgentNetworkMessage.id == message.parent_message_id,
+                AgentNetworkMessage.conversation_id == conversation.id,
+                AgentNetworkMessage.role == "user",
+            )
+            .first()
+        )
+        if not task_message or not task_message.content.strip():
+            raise ValueError("Original plan task not found")
+
         # 当前 App 只允许一条 pseudocode 标记为 applied。
         db.session.query(AgentNetworkMessage).filter(
             AgentNetworkMessage.conversation_id == conversation.id,
@@ -140,6 +180,7 @@ class AgentNetworkConversationService:
         message.updated_at = datetime.utcnow()
 
         conversation.applied_message_id = message.id
+        conversation.applied_task = task_message.content.strip()
         conversation.updated_at = datetime.utcnow()
 
         db.session.commit()
@@ -179,6 +220,38 @@ class AgentNetworkConversationService:
         return message
 
     @staticmethod
+    def save_execution_result(
+        app_model: App,
+        account,
+        message_id: str,
+        execution_result: dict[str, Any],
+    ) -> AgentNetworkMessage:
+        conversation = AgentNetworkConversationService.get_or_create_conversation(app_model, account)
+
+        message = (
+            db.session.query(AgentNetworkMessage)
+            .filter(
+                AgentNetworkMessage.id == message_id,
+                AgentNetworkMessage.conversation_id == conversation.id,
+                AgentNetworkMessage.role == "assistant",
+            )
+            .first()
+        )
+        if not message:
+            raise ValueError("Agent Network assistant message not found")
+        if conversation.applied_message_id != message.id:
+            raise ValueError("Execution result must belong to the applied Agent Network message")
+
+        meta = dict(message.meta or {})
+        meta["agent_network_execution"] = execution_result
+        message.meta = meta
+        message.updated_at = datetime.utcnow()
+        conversation.updated_at = datetime.utcnow()
+
+        db.session.commit()
+        return message
+
+    @staticmethod
     def clear_messages(app_model: App, account) -> AgentNetworkConversation:
         conversation = AgentNetworkConversationService.get_or_create_conversation(app_model, account)
 
@@ -187,6 +260,8 @@ class AgentNetworkConversationService:
         ).delete()
 
         conversation.applied_message_id = None
+        # Clearing chat history does not clear the current canvas.
+        # Keep applied_task until another pseudocode is successfully applied.
         conversation.updated_at = datetime.utcnow()
 
         db.session.commit()

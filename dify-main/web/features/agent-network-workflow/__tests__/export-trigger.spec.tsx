@@ -4,6 +4,7 @@ import { AgentNetworkPseudocodeTrigger } from '../export-trigger'
 
 const mockExportPseudocode = vi.hoisted(() => vi.fn())
 const mockExecuteCode = vi.hoisted(() => vi.fn())
+const mockFetchConversation = vi.hoisted(() => vi.fn())
 const mockDoSyncWorkflowDraft = vi.hoisted(() => vi.fn())
 const mockToastSuccess = vi.hoisted(() => vi.fn())
 const mockToastError = vi.hoisted(() => vi.fn())
@@ -27,8 +28,8 @@ vi.mock('../execute-code', () => ({
   executeAgentNetworkCode: mockExecuteCode,
 }))
 
-vi.mock('../storage', () => ({
-  useAgentNetworkInitialTasks: () => [{ 'app-123': { initialTask: 'Original task' } }, vi.fn()],
+vi.mock('../conversation-service', () => ({
+  fetchAgentNetworkConversation: mockFetchConversation,
 }))
 
 const result = {
@@ -46,6 +47,16 @@ const result = {
 describe('AgentNetworkPseudocodeTrigger', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFetchConversation.mockImplementation(async (appId: string) => ({
+      id: 'conversation-1',
+      tenant_id: 'tenant-1',
+      app_id: appId,
+      created_by: 'user-1',
+      applied_message_id: appId === 'app-123' ? 'assistant-1' : null,
+      applied_task: appId === 'app-123' ? 'Original task' : null,
+      created_at: 1,
+      updated_at: 1,
+    }))
     mockExportPseudocode.mockReturnValue(result)
     mockExecuteCode.mockResolvedValue({
       finalResult: { value: 'done', raw: { answer: 'raw' } },
@@ -152,7 +163,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'common.operation.execute' }))
 
-    expect(mockToastError).toHaveBeenCalledWith('common.agentNetworkChat.initialTaskMissing')
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('common.agentNetworkChat.initialTaskMissing'))
     expect(mockDoSyncWorkflowDraft).not.toHaveBeenCalled()
     expect(mockExecuteCode).not.toHaveBeenCalled()
   })

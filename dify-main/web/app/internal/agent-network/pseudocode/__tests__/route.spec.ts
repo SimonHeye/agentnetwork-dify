@@ -118,7 +118,7 @@ describe('POST /internal/agent-network/pseudocode', () => {
 
   it('should return the Agent Network plaintext error description', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-      "NameError: name 'UnknownGroup' is not defined",
+      'NameError: name \'UnknownGroup\' is not defined',
       { status: 500 },
     )))
 
@@ -127,7 +127,38 @@ describe('POST /internal/agent-network/pseudocode', () => {
     expect(response.status).toBe(502)
     expect(await response.json()).toEqual({
       code: 'AGENT_NETWORK_EXECUTION_FAILED',
-      message: "NameError: name 'UnknownGroup' is not defined",
+      message: 'NameError: name \'UnknownGroup\' is not defined',
+    })
+  })
+
+  it('should normalize a numeric trace scalar to a string', async () => {
+    const numericResult = {
+      ...executeResult,
+      trace: [{ ...executeResult.trace[0], scalar: 42 }],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(numericResult), { status: 200 })))
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ...numericResult,
+      trace: [{ ...numericResult.trace[0], scalar: '42' }],
+    })
+  })
+
+  it('should convert an Agent Network HTML error page into readable text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      '<!doctype html><html><h1>Internal Server Error</h1><p>NameError: UnknownGroup is not defined</p></html>',
+      { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    )))
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({
+      code: 'AGENT_NETWORK_EXECUTION_FAILED',
+      message: expect.stringContaining('NameError: UnknownGroup is not defined'),
     })
   })
 
