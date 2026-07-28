@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Quy trình đã được tạo và lưu. Agent Network đang chạy quy trình...",
+  "agentNetworkChat.executionFailed": "Quy trình đã được tạo và lưu, nhưng thực thi thất bại: {{reason}}",
+  "agentNetworkChat.resultTitle": "Kết quả cuối cùng",
   "about.changeLog": "Nhật ký thay đổi",
   "about.latestAvailable": "Dify {{version}} là phiên bản mới nhất hiện có.",
   "about.nowAvailable": "Dify {{version}} hiện đã có sẵn.",

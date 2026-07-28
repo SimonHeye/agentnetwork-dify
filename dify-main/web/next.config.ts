@@ -12,6 +12,9 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS?.split(',')
 const nextConfig: NextConfig = {
   basePath: env.NEXT_PUBLIC_BASE_PATH,
   ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
+  experimental: {
+    cpus: 2,
+  },
   transpilePackages: ['@t3-oss/env-core', '@t3-oss/env-nextjs', 'echarts', 'zrender'],
   serverExternalPackages: ['loro-crdt'],
   turbopack: {

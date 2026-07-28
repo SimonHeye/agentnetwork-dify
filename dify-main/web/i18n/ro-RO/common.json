@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Fluxul de lucru a fost generat și salvat. Agent Network îl execută acum...",
+  "agentNetworkChat.executionFailed": "Fluxul de lucru a fost generat și salvat, dar execuția a eșuat: {{reason}}",
+  "agentNetworkChat.resultTitle": "Rezultat final",
   "about.changeLog": "Jurnal modificări",
   "about.latestAvailable": "Dify {{version}} este ultima versiune disponibilă.",
   "about.nowAvailable": "Dify {{version}} este acum disponibil.",

@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Der Workflow wurde erstellt und gespeichert. Agent Network führt ihn jetzt aus...",
+  "agentNetworkChat.executionFailed": "Der Workflow wurde erstellt und gespeichert, aber die Ausführung ist fehlgeschlagen: {{reason}}",
+  "agentNetworkChat.resultTitle": "Endergebnis",
   "about.changeLog": "Änderungsprotokoll",
   "about.latestAvailable": "Dify {{version}} ist die neueste verfügbare Version.",
   "about.nowAvailable": "Dify {{version}} ist jetzt verfügbar.",

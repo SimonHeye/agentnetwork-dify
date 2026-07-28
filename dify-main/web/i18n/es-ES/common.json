@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "El flujo de trabajo se generó y guardó. Agent Network lo está ejecutando...",
+  "agentNetworkChat.executionFailed": "El flujo de trabajo se generó y guardó, pero la ejecución falló: {{reason}}",
+  "agentNetworkChat.resultTitle": "Resultado final",
   "about.changeLog": "Registro de cambios",
   "about.latestAvailable": "Dify {{version}} es la última versión disponible.",
   "about.nowAvailable": "Dify {{version}} ya está disponible.",

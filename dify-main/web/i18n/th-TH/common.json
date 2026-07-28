@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "สร้างและบันทึกเวิร์กโฟลว์แล้ว ขณะนี้ Agent Network กำลังเรียกใช้...",
+  "agentNetworkChat.executionFailed": "สร้างและบันทึกเวิร์กโฟลว์แล้ว แต่การเรียกใช้ล้มเหลว: {{reason}}",
+  "agentNetworkChat.resultTitle": "ผลลัพธ์สุดท้าย",
   "about.changeLog": "บันทึกการเปลี่ยนแปลง",
   "about.latestAvailable": "Dify {{version}} เป็นเวอร์ชันล่าสุดที่มี",
   "about.nowAvailable": "Dify {{version}} พร้อมใช้งานแล้ว",

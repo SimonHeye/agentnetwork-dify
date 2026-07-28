@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "گردش کار ایجاد و ذخیره شد. Agent Network اکنون آن را اجرا می‌کند...",
+  "agentNetworkChat.executionFailed": "گردش کار ایجاد و ذخیره شد، اما اجرا ناموفق بود: {{reason}}",
+  "agentNetworkChat.resultTitle": "نتیجه نهایی",
   "about.changeLog": "تغییرات",
   "about.latestAvailable": "Dify {{version}} آخرین نسخه در دسترس است.",
   "about.nowAvailable": "Dify {{version}} اکنون در دسترس است.",

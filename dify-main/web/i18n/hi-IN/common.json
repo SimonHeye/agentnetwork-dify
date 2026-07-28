@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "वर्कफ़्लो तैयार और सहेज दिया गया है। Agent Network अब इसे चला रहा है...",
+  "agentNetworkChat.executionFailed": "वर्कफ़्लो तैयार और सहेज दिया गया, लेकिन उसका निष्पादन विफल रहा: {{reason}}",
+  "agentNetworkChat.resultTitle": "अंतिम परिणाम",
   "about.changeLog": "परिवर्तन लॉग",
   "about.latestAvailable": "Dify {{version}} नवीनतम उपलब्ध संस्करण है।",
   "about.nowAvailable": "Dify {{version}} अब उपलब्ध है।",

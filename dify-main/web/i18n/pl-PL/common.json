@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Przepływ pracy został wygenerowany i zapisany. Agent Network właśnie go uruchamia...",
+  "agentNetworkChat.executionFailed": "Przepływ pracy został wygenerowany i zapisany, ale wykonanie nie powiodło się: {{reason}}",
+  "agentNetworkChat.resultTitle": "Wynik końcowy",
   "about.changeLog": "Dziennik zmian",
   "about.latestAvailable": "Dify {{version}} jest najnowszą dostępną wersją.",
   "about.nowAvailable": "Dify {{version}} jest teraz dostępny.",

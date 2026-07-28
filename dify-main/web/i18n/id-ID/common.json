@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Alur kerja telah dibuat dan disimpan. Agent Network sedang menjalankannya...",
+  "agentNetworkChat.executionFailed": "Alur kerja telah dibuat dan disimpan, tetapi eksekusinya gagal: {{reason}}",
+  "agentNetworkChat.resultTitle": "Hasil akhir",
   "about.changeLog": "Log perubahan",
   "about.latestAvailable": "Dify {{version}} adalah versi terbaru yang tersedia.",
   "about.nowAvailable": "Dify {{version}} kini tersedia.",

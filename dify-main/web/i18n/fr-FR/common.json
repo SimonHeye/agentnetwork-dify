@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Le workflow a été généré et enregistré. Agent Network l’exécute maintenant...",
+  "agentNetworkChat.executionFailed": "Le workflow a été généré et enregistré, mais son exécution a échoué : {{reason}}",
+  "agentNetworkChat.resultTitle": "Résultat final",
   "about.changeLog": "Journal des modifications",
   "about.latestAvailable": "Dify {{version}} est la dernière version disponible.",
   "about.nowAvailable": "Dify {{version}} est maintenant disponible.",

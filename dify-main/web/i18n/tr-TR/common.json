@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "İş akışı oluşturuldu ve kaydedildi. Agent Network şimdi çalıştırıyor...",
+  "agentNetworkChat.executionFailed": "İş akışı oluşturuldu ve kaydedildi, ancak yürütme başarısız oldu: {{reason}}",
+  "agentNetworkChat.resultTitle": "Nihai sonuç",
   "about.changeLog": "Değişiklik Günlüğü",
   "about.latestAvailable": "Dify {{version}} en son mevcut sürüm.",
   "about.nowAvailable": "Dify {{version}} şimdi mevcut.",

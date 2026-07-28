@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "O fluxo de trabalho foi gerado e salvo. O Agent Network está executando-o agora...",
+  "agentNetworkChat.executionFailed": "O fluxo de trabalho foi gerado e salvo, mas a execução falhou: {{reason}}",
+  "agentNetworkChat.resultTitle": "Resultado final",
   "about.changeLog": "Registro de Alterações",
   "about.latestAvailable": "Dify {{version}} é a última versão disponível.",
   "about.nowAvailable": "Dify {{version}} já está disponível.",

@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "ワークフローを生成して保存しました。Agent Network が実行しています...",
+  "agentNetworkChat.executionFailed": "ワークフローは生成して保存されましたが、実行に失敗しました：{{reason}}",
+  "agentNetworkChat.resultTitle": "最終結果",
   "about.changeLog": "変更ログ",
   "about.latestAvailable": "Dify {{version}} が最新バージョンです。",
   "about.nowAvailable": "Dify {{version}} が利用可能です。",

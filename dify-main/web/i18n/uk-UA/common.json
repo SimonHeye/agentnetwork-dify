@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Робочий процес створено й збережено. Agent Network запускає його...",
+  "agentNetworkChat.executionFailed": "Робочий процес створено й збережено, але виконати його не вдалося: {{reason}}",
+  "agentNetworkChat.resultTitle": "Підсумковий результат",
   "about.changeLog": "Журнал змін",
   "about.latestAvailable": "Dify {{version}} – це найновіша доступна версія.",
   "about.nowAvailable": "Dify {{version}} тепер доступна.",

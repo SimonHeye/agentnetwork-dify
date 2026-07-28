@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "워크플로를 생성하고 저장했습니다. Agent Network가 실행 중입니다...",
+  "agentNetworkChat.executionFailed": "워크플로는 생성하고 저장했지만 실행에 실패했습니다: {{reason}}",
+  "agentNetworkChat.resultTitle": "최종 결과",
   "about.changeLog": "변경 로그",
   "about.latestAvailable": "Dify {{version}} 최신 버전입니다.",
   "about.nowAvailable": "Dify {{version}} 사용 가능합니다.",

@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "Potek dela je ustvarjen in shranjen. Agent Network ga zdaj izvaja...",
+  "agentNetworkChat.executionFailed": "Potek dela je ustvarjen in shranjen, vendar izvedba ni uspela: {{reason}}",
+  "agentNetworkChat.resultTitle": "Končni rezultat",
   "about.changeLog": "Dnevnik sprememb",
   "about.latestAvailable": "Dify {{version}} je najnovejša različica, ki je na voljo.",
   "about.nowAvailable": "Dify {{version}} je zdaj na voljo.",

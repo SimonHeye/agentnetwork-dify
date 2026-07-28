@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "تم إنشاء سير العمل وحفظه. يقوم Agent Network بتنفيذه الآن...",
+  "agentNetworkChat.executionFailed": "تم إنشاء سير العمل وحفظه، لكن فشل التنفيذ: {{reason}}",
+  "agentNetworkChat.resultTitle": "النتيجة النهائية",
   "about.changeLog": "سجل التغييرات",
   "about.latestAvailable": "Dify {{version}} هو أحدث إصدار متاح.",
   "about.nowAvailable": "Dify {{version}} متاح الآن.",

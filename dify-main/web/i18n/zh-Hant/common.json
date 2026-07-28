@@ -1,4 +1,7 @@
 {
+  "agentNetworkChat.executing": "工作流程已產生並儲存，Agent Network 正在執行該流程……",
+  "agentNetworkChat.executionFailed": "工作流程已產生並儲存，但執行失敗：{{reason}}",
+  "agentNetworkChat.resultTitle": "最終結果",
   "about.changeLog": "更新日誌",
   "about.latestAvailable": "Dify {{version}} 已是最新版本。",
   "about.nowAvailable": "Dify {{version}} 現已可用。",

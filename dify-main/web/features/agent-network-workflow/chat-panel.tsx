@@ -9,6 +9,7 @@ import { useStore as useAppStore } from '@/app/components/app/store'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
 import { usePathname, useRouter } from '@/next/navigation'
 import { requestAgentNetworkPlan } from './request-plan'
+import { runGeneratedAgentNetworkWorkflow } from './run-generated-workflow'
 import { useAgentNetworkInitialTasks } from './storage'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
@@ -17,6 +18,7 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
   pseudocode?: string
+  finalResult?: string
   state?: 'pending' | 'success' | 'error'
 }
 
@@ -81,17 +83,40 @@ export function AgentNetworkChatPanel() {
         preservePositions: false,
         saveDraft: true,
       })
+
       setMessages(current => current.map(message => message.id === assistantMessageId
-        ? {
-            ...message,
-            content: t('agentNetworkChat.success', {
-              nodes: result.graph.nodes.length,
-              edges: result.graph.edges.length,
-            }),
-            pseudocode: plan.pseudocode,
-            state: 'success',
-          }
+        ? { ...message, content: t('agentNetworkChat.executing'), pseudocode: plan.pseudocode }
         : message))
+
+      try {
+        const execution = await runGeneratedAgentNetworkWorkflow({
+          task,
+          pseudocode: plan.pseudocode,
+        })
+        setMessages(current => current.map(message => message.id === assistantMessageId
+          ? {
+              ...message,
+              content: t('agentNetworkChat.success', {
+                nodes: result.graph.nodes.length,
+                edges: result.graph.edges.length,
+              }),
+              pseudocode: plan.pseudocode,
+              finalResult: execution.finalResult,
+              state: 'success',
+            }
+          : message))
+      }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        setMessages(current => current.map(message => message.id === assistantMessageId
+          ? {
+              ...message,
+              content: t('agentNetworkChat.executionFailed', { reason }),
+              pseudocode: plan.pseudocode,
+              state: 'error',
+            }
+          : message))
+      }
     }
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -173,6 +198,20 @@ export function AgentNetworkChatPanel() {
                 >
                   {message.content}
                 </div>
+                {message.finalResult !== undefined && (
+                  <section
+                    className="mt-2 overflow-hidden rounded-xl border border-divider-regular bg-background-default text-left"
+                    aria-label={t('agentNetworkChat.resultTitle')}
+                  >
+                    <div className="flex items-center gap-1.5 border-b border-divider-regular bg-background-section px-3 py-2 system-xs-semibold text-text-secondary">
+                      <span className="i-ri-checkbox-circle-line size-3.5 text-text-success" aria-hidden="true" />
+                      {t('agentNetworkChat.resultTitle')}
+                    </div>
+                    <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-text-primary">
+                      <code>{message.finalResult || 'null'}</code>
+                    </pre>
+                  </section>
+                )}
                 {message.pseudocode && message.state !== 'pending' && (
                   <details className="mt-2 text-left">
                     <summary className="cursor-pointer system-xs-medium text-text-tertiary hover:text-text-secondary">

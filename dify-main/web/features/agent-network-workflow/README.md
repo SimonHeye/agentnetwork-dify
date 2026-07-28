@@ -28,7 +28,7 @@ Planning uses `POST /service/plan_code`. Dify sends the user's task through the 
 }
 ```
 
-The browser receives `{ "pseudocode": "..." }`, compiles it to `workflow.graph`, saves the draft, and renders it on the open canvas.
+The browser receives `{ "pseudocode": "..." }`, compiles it to `workflow.graph`, saves the draft, and renders it on the open canvas. The Chat panel then executes that generated pseudocode with the same user task and displays the returned final result below the Agent Network message. An execution failure leaves the generated and saved graph intact and is reported separately from planning or compilation failures.
 
 Execution uses `POST /service/execute_code` through `/internal/agent-network/pseudocode`:
 
@@ -43,7 +43,7 @@ Execution uses `POST /service/execute_code` through `/internal/agent-network/pse
 }
 ```
 
-For the current demo, the resolver reuses the first successfully planned task for the app. `resolve-execute-task.ts` is the single extension point for changing that policy later.
+Chat-triggered execution uses the task from the current conversation turn. For the separate workflow-header Execute action, the resolver reuses the first successfully planned task for the app. `resolve-execute-task.ts` is the single extension point for changing that header-action policy later.
 
 Successful execution displays `final_result.value` when present and keeps the full `context`, `trace`, and `calls` response. Non-2xx plain-text responses from AgentNetwork are surfaced to the user.
 
@@ -53,7 +53,7 @@ The workflow header opens a read-only preview containing generated pseudocode an
 
 The Save action only saves the current Dify workflow draft. It never generates or sends pseudocode.
 
-The separate Execute action is the delivery boundary. It performs these operations in order:
+The separate Execute action is the delivery boundary for manually edited canvas workflows. It performs these operations in order:
 
 1. Force-save the current Dify workflow draft.
 1. Reverse-compile the latest canvas graph, including LLM `data.skills`, to pseudocode.
@@ -197,6 +197,7 @@ const DEFAULT_MODEL = {
 - `constants`
 - `graph-to-pseudocode`
 - `reverse-compiler`
+- `run-generated-workflow`
 - `python-syntax`
 - `types`
 - `use-agent-network-workflow`
