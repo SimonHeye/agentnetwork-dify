@@ -1,10 +1,9 @@
 import type { AgentNetworkExecuteResult } from './types'
 import { executeAgentNetworkCode } from './execute-code'
-import { formatAgentNetworkFinalResult } from './format-execute-result'
 
 export type GeneratedAgentNetworkExecution = {
   execution: AgentNetworkExecuteResult
-  finalResult: string
+  finalResult: unknown
 }
 
 type RunGeneratedAgentNetworkWorkflowInput = {
@@ -27,6 +26,6 @@ export async function runGeneratedAgentNetworkWorkflow({
 
   return {
     execution,
-    finalResult: formatAgentNetworkFinalResult(execution.finalResult),
+    finalResult: execution.finalResult,
   }
 }

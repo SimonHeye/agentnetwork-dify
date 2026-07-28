@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { useStore as useAppStore } from '@/app/components/app/store'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
 import { usePathname, useRouter } from '@/next/navigation'
+import { AgentNetworkExecutionResult } from './execution-result'
 import { requestAgentNetworkPlan } from './request-plan'
 import { runGeneratedAgentNetworkWorkflow } from './run-generated-workflow'
 import { useAgentNetworkInitialTasks } from './storage'
@@ -18,7 +19,7 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
   pseudocode?: string
-  finalResult?: string
+  finalResult?: unknown
   state?: 'pending' | 'success' | 'error'
 }
 
@@ -199,18 +200,7 @@ export function AgentNetworkChatPanel() {
                   {message.content}
                 </div>
                 {message.finalResult !== undefined && (
-                  <section
-                    className="mt-2 overflow-hidden rounded-xl border border-divider-regular bg-background-default text-left"
-                    aria-label={t('agentNetworkChat.resultTitle')}
-                  >
-                    <div className="flex items-center gap-1.5 border-b border-divider-regular bg-background-section px-3 py-2 system-xs-semibold text-text-secondary">
-                      <span className="i-ri-checkbox-circle-line size-3.5 text-text-success" aria-hidden="true" />
-                      {t('agentNetworkChat.resultTitle')}
-                    </div>
-                    <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-text-primary">
-                      <code>{message.finalResult || 'null'}</code>
-                    </pre>
-                  </section>
+                  <AgentNetworkExecutionResult result={message.finalResult} />
                 )}
                 {message.pseudocode && message.state !== 'pending' && (
                   <details className="mt-2 text-left">

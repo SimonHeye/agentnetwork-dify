@@ -21,9 +21,9 @@ const traceSchema = z.object({
 
 const agentNetworkResponseSchema = z.object({
   final_result: z.unknown(),
-  context: z.record(z.string(), z.unknown()),
-  trace: z.array(traceSchema),
-  calls: z.number().int().nonnegative(),
+  context: z.record(z.string(), z.unknown()).optional().default({}),
+  trace: z.array(traceSchema).optional().default([]),
+  calls: z.number().int().nonnegative().optional(),
 }).passthrough()
 
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -76,7 +76,10 @@ export async function POST(request: Request) {
     if (!result.success)
       return json({ code: 'AGENT_NETWORK_INVALID_RESPONSE' }, 502)
 
-    return Response.json(result.data, {
+    return Response.json({
+      ...result.data,
+      calls: result.data.calls ?? result.data.trace.length,
+    }, {
       status: 200,
       headers: { 'Cache-Control': 'no-store' },
     })

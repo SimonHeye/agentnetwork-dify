@@ -45,7 +45,15 @@ Execution uses `POST /service/execute_code` through `/internal/agent-network/pse
 
 Chat-triggered execution uses the task from the current conversation turn. For the separate workflow-header Execute action, the resolver reuses the first successfully planned task for the app. `resolve-execute-task.ts` is the single extension point for changing that header-action policy later.
 
-Successful execution displays `final_result.value` when present and keeps the full `context`, `trace`, and `calls` response. Non-2xx plain-text responses from AgentNetwork are surfaced to the user.
+Successful execution keeps the raw `final_result` until the presentation boundary.
+The result renderer unwraps `final_result.value` when present, displays strings
+and numbers directly, renders HTTP(S) image URLs inline, and presents other
+HTTP(S) file URLs with an in-panel preview dialog plus open/download actions.
+Structured resources may also use `{ "url", "filename", "mime_type" }`.
+Other structured values fall back to formatted JSON. The execution proxy accepts
+minimal real-backend responses containing only `final_result` and normalizes
+missing `context`, `trace`, and `calls`. Non-2xx plain-text responses from
+AgentNetwork are surfaced to the user.
 
 ## Reverse Delivery
 
@@ -89,16 +97,16 @@ larger than the ordinary Workflow node menu because it also contains dynamic
 plugin nodes, knowledge-pipeline nodes, feature-gated nodes, legacy data, and
 internal container helpers.
 
-| Category | Dify node types | Pseudocode contract |
-| --- | --- | --- |
-| Entry | User Input, Schedule Trigger, Webhook Trigger, Plugin Trigger, DataSource | Injected input namespace or a typed trigger/data-source call |
-| Model and retrieval | LLM, Knowledge Retrieval, Agent, Agent V2 | `LLM`, selected `*Group`, `KnowledgeRetrieval`, `Agent`, or `AgentV2` assignment |
-| Transformation | Code, Template Transform, HTTP Request, Tool, Parameter Extractor, Document Extractor, List Operator, Variable Aggregator | Typed assignment with selectors and node configuration |
-| Control | If/Else, Question Classifier, Human Input | Python `if`/`elif`/`else` branches |
-| Containers | Iteration, Loop | Iteration is always `for ... in enumerate(...)`; Loop is always bounded `for ... in range(loop_count)` with optional `break` |
-| Mutation | Variable Assigner | Assignment, append/extend, arithmetic update, clear, or remove operation |
-| Output | Answer, End, KnowledgeBase | `reply(...)`, `final_result = value/dict`, or knowledge-index result |
-| Internal | Start Placeholder, DataSource Empty, Iteration Start, Loop Start, Loop End | Structural only; container starts provide aliases and Loop End emits `break` |
+| Category            | Dify node types                                                                                                           | Pseudocode contract                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Entry               | User Input, Schedule Trigger, Webhook Trigger, Plugin Trigger, DataSource                                                 | Injected input namespace or a typed trigger/data-source call                                                                 |
+| Model and retrieval | LLM, Knowledge Retrieval, Agent, Agent V2                                                                                 | `LLM`, selected `*Group`, `KnowledgeRetrieval`, `Agent`, or `AgentV2` assignment                                             |
+| Transformation      | Code, Template Transform, HTTP Request, Tool, Parameter Extractor, Document Extractor, List Operator, Variable Aggregator | Typed assignment with selectors and node configuration                                                                       |
+| Control             | If/Else, Question Classifier, Human Input                                                                                 | Python `if`/`elif`/`else` branches                                                                                           |
+| Containers          | Iteration, Loop                                                                                                           | Iteration is always `for ... in enumerate(...)`; Loop is always bounded `for ... in range(loop_count)` with optional `break` |
+| Mutation            | Variable Assigner                                                                                                         | Assignment, append/extend, arithmetic update, clear, or remove operation                                                     |
+| Output              | Answer, End, KnowledgeBase                                                                                                | `reply(...)`, `final_result = value/dict`, or knowledge-index result                                                         |
+| Internal            | Start Placeholder, DataSource Empty, Iteration Start, Loop Start, Loop End                                                | Structural only; container starts provide aliases and Loop End emits `break`                                                 |
 
 Skills have one owner: only an LLM node's `data.skills` becomes
 `skills=[...]`. Tool nodes are standalone calls. Native Agent and Agent V2
@@ -148,8 +156,8 @@ End keeps the Agent Network top-level output convention:
 The web service exposes a demo endpoint that compiles pseudocode on the Next.js server and queues the resulting graph for an open workflow editor. The editor polls for compiled graphs and applies them directly through `useAgentNetworkWorkflow`; this path does not use the browser `window` bridge.
 
 1. Start the web service and open the target workflow editor in the browser.
-2. Copy the app id from the workflow URL.
-3. Send this request from Apifox:
+1. Copy the app id from the workflow URL.
+1. Send this request from Apifox:
 
 ```http
 POST http://localhost:3000/agent-network/pseudocode
@@ -195,6 +203,8 @@ const DEFAULT_MODEL = {
 - `command-consumer`
 - `command-store`
 - `constants`
+- `execution-result`
+- `execution-result-model`
 - `graph-to-pseudocode`
 - `reverse-compiler`
 - `run-generated-workflow`

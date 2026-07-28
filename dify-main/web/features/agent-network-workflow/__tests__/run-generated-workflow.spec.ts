@@ -10,7 +10,7 @@ describe('runGeneratedAgentNetworkWorkflow', () => {
     vi.clearAllMocks()
   })
 
-  it('should execute the generated pseudocode and return its displayable final result', async () => {
+  it('should execute the generated pseudocode and preserve its wrapped final result', async () => {
     vi.mocked(executeAgentNetworkCode).mockResolvedValue({
       finalResult: {
         value: 'The requested workflow completed.',
@@ -34,11 +34,14 @@ describe('runGeneratedAgentNetworkWorkflow', () => {
       need_match: false,
       include_agents: true,
     })
-    expect(result.finalResult).toBe('The requested workflow completed.')
+    expect(result.finalResult).toEqual({
+      value: 'The requested workflow completed.',
+      raw: { status: 'done' },
+    })
     expect(result.execution.calls).toBe(1)
   })
 
-  it('should preserve a structured final result as formatted JSON', async () => {
+  it('should preserve the raw final result for type-aware presentation', async () => {
     vi.mocked(executeAgentNetworkCode).mockResolvedValue({
       finalResult: { answer: 42 },
       context: {},
@@ -51,9 +54,7 @@ describe('runGeneratedAgentNetworkWorkflow', () => {
       pseudocode: 'final_result = 42',
     })
 
-    expect(result.finalResult).toBe(`{
-  "answer": 42
-}`)
+    expect(result.finalResult).toEqual({ answer: 42 })
   })
 
   it('should propagate execution failures to the chat workflow', async () => {
