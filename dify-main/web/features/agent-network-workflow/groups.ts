@@ -2,6 +2,7 @@ export const AGENT_NETWORK_GROUPS = [
   'ReasoningGroup',
   'SearchGroup',
   'CalculatorGroup',
+  'EmailGenerationGroup',
   'ClassificationGroup',
   'PlanningGroup',
   'ExtractionGroup',

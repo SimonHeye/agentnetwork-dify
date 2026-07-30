@@ -273,6 +273,11 @@ const COMMON_CONFIG_KEYS = new Set([
   'isInLoop',
   'loop_id',
   'agent_network_variable',
+  'agent_network_synthetic_join',
+  'agent_network_call_kwargs',
+  'agent_network_call_kwarg_selectors',
+  'agent_network_rendered_prompt',
+  'agent_network_synthetic_expression',
 ])
 
 class ReverseAbort extends Error {}
@@ -395,7 +400,7 @@ class GraphToPseudocodeCompiler {
       if (node.id === this.entryId && (this.incoming.get(node.id)?.length ?? 0) > 0)
         this.fail('ENTRY_HAS_INPUT', 'Workflow entry cannot have incoming edges', node.id)
       if (
-        (node.data.type === BlockEnum.End || node.data.type === BlockEnum.KnowledgeBase)
+        (node.data.type === BlockEnum.End || node.data.type === BlockEnum.Answer || node.data.type === BlockEnum.KnowledgeBase)
         && (this.outgoing.get(node.id)?.length ?? 0) > 0
       ) {
         this.fail('TERMINAL_HAS_OUTPUT', `${node.data.type} cannot have outgoing edges`, node.id)
@@ -429,6 +434,22 @@ class GraphToPseudocodeCompiler {
       }
     }
 
+    const joinedVariablesByNode = new Map<string, Set<string>>()
+    for (const joinNode of this.graph.nodes) {
+      const joinData = asRecord(joinNode.data)
+      const variable = joinData.agent_network_variable
+      if (joinData.agent_network_synthetic_join !== true || typeof variable !== 'string')
+        continue
+      const sourceIds = asArray(joinData.variables)
+        .map(item => stringArray(item)[0])
+        .filter((sourceId): sourceId is string => Boolean(sourceId))
+      for (const nodeId of [joinNode.id, ...sourceIds]) {
+        const variables = joinedVariablesByNode.get(nodeId) ?? new Set<string>()
+        variables.add(variable)
+        joinedVariablesByNode.set(nodeId, variables)
+      }
+    }
+
     const usedVariables = new Set(this.entryVariables)
     usedVariables.add('final_result')
     usedVariables.add('error')
@@ -454,6 +475,15 @@ class GraphToPseudocodeCompiler {
         this.warn(
           'INFERRED_VARIABLE',
           `Graph does not retain the original assignment name for ${node.data.title}; generated ${variable}`,
+          node.id,
+        )
+      }
+      else if (usedVariables.has(variable) && !joinedVariablesByNode.get(node.id)?.has(variable)) {
+        const original = variable
+        variable = uniqueName(variable, usedVariables)
+        this.warn(
+          'DUPLICATE_VARIABLE',
+          `Variable ${original} is already used outside a branch join; renamed this value to ${variable}`,
           node.id,
         )
       }
@@ -604,6 +634,12 @@ class GraphToPseudocodeCompiler {
         activePath.delete(node.id)
         return true
       }
+      else if (
+        asRecord(node.data).agent_network_synthetic_join === true
+        || typeof asRecord(node.data).agent_network_synthetic_expression === 'string'
+      ) {
+        currentId = this.singleSuccessor(node)
+      }
       else if (INTERNAL_NODE_TYPES.has(node.data.type)) {
         if (node.data.type === BlockEnum.StartPlaceholder || node.data.type === BlockEnum.DataSourceEmpty) {
           this.warn(
@@ -715,9 +751,29 @@ class GraphToPseudocodeCompiler {
     const callable = this.functionNames.get(node.id) ?? 'LLM'
     const isGroup = isConfiguredAgentNetworkGroup(data.agent_network_group)
     const model = asRecord(data.model)
-    const args: [string, string][] = [
-      ['task', this.renderInterpolatedValue(data.prompt_template, node)],
-    ]
+    const renderedPrompt = this.renderInterpolatedValue(data.prompt_template, node)
+    const currentPromptText = this.promptText(data.prompt_template)
+    const preservedKwargs = asRecord(data.agent_network_call_kwargs)
+    const preservedSelectors = asRecord(data.agent_network_call_kwarg_selectors)
+    const originalPrompt = data.agent_network_rendered_prompt
+    const canRestoreKwargs = isGroup
+      && typeof originalPrompt === 'string'
+      && originalPrompt === currentPromptText
+      && Object.keys(preservedKwargs).length > 0
+    const args: [string, string][] = canRestoreKwargs
+      ? Object.entries(preservedKwargs).flatMap(([name, raw]) => (
+          isPythonIdentifier(name) && typeof raw === 'string' ? [[name, raw]] : []
+        ))
+      : [
+          ['task', renderedPrompt],
+          ...Object.entries(preservedKwargs).flatMap(([name, raw]) => {
+            if (name === 'task' || !isPythonIdentifier(name) || typeof raw !== 'string')
+              return []
+            const selector = stringArray(preservedSelectors[name])
+            const expression = selector.length ? this.selectorExpression(selector, node.id) : raw
+            return [[name, expression] as [string, string]]
+          }),
+        ]
 
     if (!isGroup) {
       addDefinedArg(args, 'model', model.name)
@@ -737,6 +793,9 @@ class GraphToPseudocodeCompiler {
     if (!isGroup) {
       const config = this.semanticConfig(node, new Set([
         'agent_network_group',
+        'agent_network_call_kwargs',
+        'agent_network_call_kwarg_selectors',
+        'agent_network_rendered_prompt',
         'model',
         'prompt_template',
         'skills',
@@ -1382,6 +1441,19 @@ class GraphToPseudocodeCompiler {
     return `dify_compare(${left}, ${pythonString(operator)}, ${value})`
   }
 
+  private promptText(value: unknown): string | null {
+    if (Array.isArray(value)) {
+      return value
+        .map(item => asRecord(item).text)
+        .filter((text): text is string => typeof text === 'string')
+        .join('\n')
+    }
+    const record = asRecord(value)
+    if (typeof record.text === 'string')
+      return record.text
+    return typeof value === 'string' ? value : null
+  }
+
   private renderInterpolatedValue(value: unknown, node: Node): string {
     if (Array.isArray(value)) {
       const texts = value
@@ -1532,6 +1604,12 @@ class GraphToPseudocodeCompiler {
     const variable = this.variableNames.get(sourceId)
     if (!variable)
       this.fail('UNSUPPORTED_SELECTOR', `Node ${sourceId} does not produce a pseudocode value`, nodeId)
+
+    const sourceData = asRecord(source.data)
+    if (sourceData.agent_network_synthetic_join === true && selector[1] === 'output')
+      return appendSelectorPath(variable, selector.slice(2))
+    if (typeof sourceData.agent_network_synthetic_expression === 'string' && selector[1] === 'result')
+      return sourceData.agent_network_synthetic_expression
 
     const path = selector.slice(1)
     if (source.data.type === BlockEnum.LLM) {

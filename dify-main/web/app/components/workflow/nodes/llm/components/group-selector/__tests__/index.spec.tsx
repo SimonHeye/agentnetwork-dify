@@ -38,6 +38,7 @@ describe('GroupSelector', () => {
     expect(screen.getByRole('option', { name: 'ReasoningGroup' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'SearchGroup' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'CalculatorGroup' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'EmailGenerationGroup' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'ClassificationGroup' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'PlanningGroup' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'ExtractionGroup' })).toBeInTheDocument()

@@ -46,6 +46,15 @@ describe('SkillsSelector', () => {
       expect(screen.queryByRole('option', { name: 'download_attachments' })).not.toBeInTheDocument()
     })
 
+    it('should expose the AgentNetwork email skill', async () => {
+      const user = userEvent.setup()
+      render(<SkillsSelectorHarness />)
+
+      await user.type(screen.getByRole('combobox', { name: 'workflow.nodes.llm.skills' }), 'email')
+
+      expect(screen.getByRole('option', { name: 'email_agent' })).toBeInTheDocument()
+    })
+
     it('should show an empty state when no skill matches', async () => {
       const user = userEvent.setup()
       render(<SkillsSelectorHarness />)

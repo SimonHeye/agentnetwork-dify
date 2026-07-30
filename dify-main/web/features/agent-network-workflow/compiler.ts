@@ -51,6 +51,10 @@ const VERTICAL_GAP = 180
 const LEFT_POSITION = 'left' as Position
 const RIGHT_POSITION = 'right' as Position
 
+function joinKey(variable: string, sources: string[]): string {
+  return `${variable}\u0000${[...sources].sort().join('\u0000')}`
+}
+
 type CallStep = {
   id: string
   kind: 'call'
@@ -58,14 +62,26 @@ type CallStep = {
   assignTo: string | null
   args: ParsedValue[]
   kwargs: Record<string, ParsedValue>
+  sources: Record<string, string[]>
   line: number
+}
+
+type BranchJoin = {
+  variable: string
+  sources: string[]
 }
 
 type BranchStep = {
   id: string
   kind: 'branch'
-  cases: Array<{ caseId: string, condition: ParsedCondition, body: string[] }>
+  cases: Array<{
+    caseId: string
+    condition: ParsedCondition
+    sources: Record<string, string[]>
+    body: string[]
+  }>
   elseCase: { caseId: 'else', body: string[] }
+  joins: BranchJoin[]
   line: number
 }
 
@@ -73,13 +89,13 @@ type IterationStep = {
   id: string
   kind: 'iteration'
   iterator: ParsedValue
+  iteratorSources: Record<string, string[]>
   indexName: string | null
   itemName: string
   body: string[]
   outputVariable: string
   output: ParsedValue
-  outputSource: string
-  outputKey: string | null
+  outputSources: Record<string, string[]>
   line: number
 }
 
@@ -113,6 +129,7 @@ type Terminal = {
   assignedName: string | null
   output: ParsedValue | null
   outputStep: string | null
+  sources: Record<string, string[]>
   line: number
 }
 
@@ -136,6 +153,7 @@ class SemanticCompiler {
   private producers: Record<string, string[]> = {}
   private assigned = new Set<string>()
   private readonly consumed = new Set<string>()
+  private readonly joinUsages = new Set<string>()
   private readonly inputs = new Map<string, null>()
   private readonly terminals: Terminal[] = []
   private readonly bindings: Binding[] = []
@@ -158,6 +176,10 @@ class SemanticCompiler {
     if (!this.terminals.length)
       throw new AgentNetworkCompileError('Unable to infer a workflow output')
     this.checkDeadVariables()
+    for (const step of this.steps) {
+      if (step.kind === 'branch')
+        step.joins = step.joins.filter(join => this.joinUsages.has(joinKey(join.variable, join.sources)))
+    }
     return {
       body,
       inputs: [...this.inputs.keys()].map(name => ({
@@ -258,19 +280,20 @@ class SemanticCompiler {
       throw new AgentNetworkCompileError(`Iteration output ${append.target} must be initialized to []`, statement.line)
 
     const iterator = statement.iterator.args[0]!
+    const iteratorSources = this.captureSources(iterator.refs)
     this.registerValue(iterator, statement.line)
     const id = `iteration_${++this.containerCount}`
     const step: IterationStep = {
       id,
       kind: 'iteration',
       iterator,
+      iteratorSources,
       indexName: statement.targets[0]!,
       itemName: statement.targets[1]!,
       body: [],
       outputVariable: append.target,
       output: append.value,
-      outputSource: '',
-      outputKey: null,
+      outputSources: {},
       line: statement.line,
     }
     this.steps.push(step)
@@ -281,13 +304,10 @@ class SemanticCompiler {
     this.localSelectors[step.indexName!] = { nodeId: id, key: 'index', type: 'number' }
     this.localSelectors[step.itemName] = { nodeId: id, key: 'item', type: 'string' }
     step.body = this.walk(statement.body.slice(0, -1), false)
+    step.outputSources = this.captureSources(step.output.refs)
     this.registerValue(step.output, append.line)
-    const outputName = step.output.expr === 'access' ? step.output.variable : step.output.expr === 'var' ? step.output.name : null
-    const outputSources = outputName ? this.producers[outputName] ?? [] : []
-    if (outputSources.length !== 1)
-      throw new AgentNetworkCompileError('Iteration append output must come from exactly one node call', append.line)
-    step.outputSource = outputSources[0]!
-    step.outputKey = step.output.expr === 'access' ? step.output.key : null
+    if (step.output.expr !== 'var' && step.output.expr !== 'access')
+      throw new AgentNetworkCompileError('Iteration append output must reference a workflow value', append.line)
     this.assigned = assignedSnapshot
     this.producers = producerSnapshot
     this.producers[step.outputVariable] = [id]
@@ -402,6 +422,9 @@ class SemanticCompiler {
   }
 
   private addCall(call: ParsedCall, target: string | null, line: number): string {
+    const sources = this.captureSources(
+      [...call.args, ...Object.values(call.kwargs)].flatMap(value => value.refs),
+    )
     this.registerCallReferences(call, line)
     if (target)
       this.validateAssignment(target, line)
@@ -417,6 +440,7 @@ class SemanticCompiler {
       assignTo: target,
       args: call.args,
       kwargs: call.kwargs,
+      sources,
       line,
     })
     if (target) {
@@ -449,7 +473,14 @@ class SemanticCompiler {
 
   private addBranch(statement: Extract<ParsedStatement, { kind: 'if' }>, tail: boolean): string {
     const id = `branch_${++this.branchCount}`
-    const step: BranchStep = { id, kind: 'branch', cases: [], elseCase: { caseId: 'else', body: [] }, line: statement.line }
+    const step: BranchStep = {
+      id,
+      kind: 'branch',
+      cases: [],
+      elseCase: { caseId: 'else', body: [] },
+      joins: [],
+      line: statement.line,
+    }
     this.steps.push(step)
     const assignedSnapshot = new Set(this.assigned)
     const producerSnapshot = cloneProducerMap(this.producers)
@@ -461,11 +492,12 @@ class SemanticCompiler {
         throw new AgentNetworkCompileError(`Condition cannot be represented safely: ${branchCase.condition.raw}`, branchCase.line)
       this.assigned = new Set(assignedSnapshot)
       this.producers = cloneProducerMap(producerSnapshot)
+      const sources = this.captureSources(branchCase.condition.refs)
       this.registerCondition(branchCase.condition, branchCase.line)
       const body = this.walk(branchCase.body, tail)
       pathAssigned.push(new Set(this.assigned))
       pathProducers.push(cloneProducerMap(this.producers))
-      step.cases.push({ caseId: `case_${index + 1}`, condition: branchCase.condition, body })
+      step.cases.push({ caseId: `case_${index + 1}`, condition: branchCase.condition, sources, body })
     }
     this.assigned = new Set(assignedSnapshot)
     this.producers = cloneProducerMap(producerSnapshot)
@@ -476,6 +508,14 @@ class SemanticCompiler {
       throw new AgentNetworkCompileError('A terminal branch must include else', statement.line)
     this.assigned = intersectSets(pathAssigned)
     this.producers = mergeProducerMaps(pathProducers)
+    step.joins = [...this.assigned].flatMap((variable) => {
+      const sources = this.producers[variable] ?? []
+      const previousSources = producerSnapshot[variable] ?? []
+      const introducedByBranch = sources.some(source => !previousSources.includes(source))
+      return sources.length > 1 && introducedByBranch
+        ? [{ variable, sources: [...sources] }]
+        : []
+    })
     return id
   }
 
@@ -486,10 +526,11 @@ class SemanticCompiler {
     outputStep: string | null,
     line: number,
   ): string {
+    const sources = output ? this.captureSources(output.refs) : {}
     if (output)
       this.registerValue(output, line)
     const id = `terminal_${++this.terminalCount}`
-    this.terminals.push({ id, via, assignedName, output, outputStep, line })
+    this.terminals.push({ id, via, assignedName, output, outputStep, sources, line })
     return id
   }
 
@@ -513,6 +554,9 @@ class SemanticCompiler {
   private registerReferences(references: string[], line: number) {
     for (const name of references) {
       this.consumed.add(name)
+      const sources = this.producers[name] ?? []
+      if (sources.length > 1)
+        this.joinUsages.add(joinKey(name, sources))
       if (this.assigned.has(name) || this.localSelectors[name])
         continue
       if (name in this.producers || this.everAssigned.has(name)) {
@@ -520,6 +564,12 @@ class SemanticCompiler {
       }
       this.inputs.set(name, null)
     }
+  }
+
+  private captureSources(references: string[]): Record<string, string[]> {
+    return Object.fromEntries(
+      [...new Set(references)].map(name => [name, [...(this.producers[name] ?? [])]]),
+    )
   }
 
   private validateAssignment(target: string, line: number) {
@@ -561,13 +611,13 @@ class DifyGraphCompiler {
   private readonly inputTypes: Record<string, string>
   private readonly localSelectors: Record<string, LocalSelector>
   private readonly structuredFields = new Map<string, Record<string, 'string' | 'number' | 'boolean'>>()
+  private readonly joinsByKey = new Map<string, { nodeId: string, outputType: string }>()
   private readonly nodes: Node[] = []
   private readonly edges: Edge[] = []
   private readonly nodeTypes = new Map<string, BlockEnum>()
   private readonly parentByNode = new Map<string, string>()
   private readonly seenEdges = new Set<string>()
   private readonly visitedSteps = new Set<string>()
-  private readonly terminalCounts = new Map<string, number>()
 
   constructor(semantics: FlowSemantics, options: AgentNetworkCompileOptions) {
     this.options = options
@@ -583,6 +633,12 @@ class DifyGraphCompiler {
   compile(semantics: FlowSemantics): WorkflowDataUpdater {
     this.inferStructuredOutputs()
     this.appendNode(this.buildStartNode(semantics.inputs))
+    for (const step of this.steps.values()) {
+      if (step.kind !== 'branch')
+        continue
+      for (const join of step.joins)
+        this.appendNode(this.buildVariableJoinNode(step, join))
+    }
     for (const step of this.steps.values()) {
       if (step.kind === 'call') {
         this.appendNode(this.buildCallNode(step))
@@ -620,16 +676,20 @@ class DifyGraphCompiler {
           const access = this.comparisonAccess(comparison)
           if (!access)
             continue
-          const sourceId = this.singleVariableSource(access.variable)
-          const sourceStep = this.steps.get(sourceId)
-          if (sourceStep?.kind !== 'call')
+          const sources = branchCase.sources[access.variable] ?? this.variables[access.variable] ?? []
+          if (!sources.length)
             throw new AgentNetworkCompileError(`${access.variable}.${access.key} must come from a Group call`)
           const fieldType = schemaTypeForComparison(comparison)
-          const fields = this.structuredFields.get(sourceId) ?? {}
-          if (fields[access.key] && fields[access.key] !== fieldType)
-            throw new AgentNetworkCompileError(`${access.variable}.${access.key} is compared with incompatible types`)
-          fields[access.key] = fieldType
-          this.structuredFields.set(sourceId, fields)
+          for (const sourceId of sources) {
+            const sourceStep = this.steps.get(sourceId)
+            if (sourceStep?.kind !== 'call')
+              throw new AgentNetworkCompileError(`${access.variable}.${access.key} must come from a Group call`)
+            const fields = this.structuredFields.get(sourceId) ?? {}
+            if (fields[access.key] && fields[access.key] !== fieldType)
+              throw new AgentNetworkCompileError(`${access.variable}.${access.key} is compared with incompatible types`)
+            fields[access.key] = fieldType
+            this.structuredFields.set(sourceId, fields)
+          }
         }
       }
     }
@@ -652,6 +712,31 @@ class DifyGraphCompiler {
     })
   }
 
+  private buildVariableJoinNode(step: BranchStep, join: BranchJoin): Node {
+    const outputs = join.sources.map(source => this.sourceOutput(source))
+    const outputTypes = [...new Set(outputs.map(([, outputType]) => outputType))]
+    const outputType = outputTypes.length === 1 ? outputTypes[0]! : 'any'
+    const nodeId = `${step.id}_join_${join.variable}`
+    const key = joinKey(join.variable, join.sources)
+    if (this.joinsByKey.has(key))
+      throw new AgentNetworkCompileError(`Duplicate variable join for ${join.variable}`, step.line)
+    this.joinsByKey.set(key, { nodeId, outputType })
+    return this.buildNode(nodeId, BlockEnum.VariableAggregator, {
+      type: BlockEnum.VariableAggregator,
+      title: `Join ${join.variable}`,
+      desc: '',
+      selected: false,
+      output_type: difyVariableType(outputType),
+      variables: outputs.map(([selector]) => selector),
+      advanced_settings: {
+        group_enabled: false,
+        groups: [],
+      },
+      agent_network_variable: join.variable,
+      agent_network_synthetic_join: true,
+    })
+  }
+
   private buildCallNode(step: CallStep): Node {
     if (step.functionName === 'CodeExecution')
       return this.buildCodeNode(step)
@@ -670,6 +755,11 @@ class DifyGraphCompiler {
       title: override?.title ?? step.functionName,
       agent_network_group: step.functionName,
       agent_network_variable: step.assignTo ?? undefined,
+      agent_network_call_kwargs: Object.fromEntries(
+        Object.entries(step.kwargs).map(([name, value]) => [name, value.raw]),
+      ),
+      agent_network_call_kwarg_selectors: this.callKwargSelectors(step),
+      agent_network_rendered_prompt: this.renderCallPrompt(step),
       desc: typeof normalized.desc === 'string' ? normalized.desc : '',
       selected: false,
       model,
@@ -705,6 +795,21 @@ class DifyGraphCompiler {
     return this.buildNode(step.id, BlockEnum.LLM, data)
   }
 
+  private callKwargSelectors(step: CallStep): Record<string, string[]> {
+    return Object.fromEntries(Object.entries(step.kwargs).flatMap(([name, value]) => {
+      if (value.expr !== 'var' && value.expr !== 'access')
+        return []
+      try {
+        return [[name, this.valueOutput(value, step.sources)[0]]]
+      }
+      catch (error) {
+        if (error instanceof AgentNetworkCompileError)
+          return []
+        throw error
+      }
+    }))
+  }
+
   private buildCodeNode(step: CallStep): Node {
     const inputs = this.requireDictArgument(step, 'inputs')
     const outputs = this.requireDictArgument(step, 'outputs')
@@ -712,7 +817,7 @@ class DifyGraphCompiler {
     const code = this.requireStringArgument(step, 'code')
     const variables = Object.entries(inputs.entries).map(([variable, value]) => ({
       variable,
-      value_selector: this.valueOutput(value)[0],
+      value_selector: this.valueOutput(value, step.sources)[0],
     }))
     const outputSchema = Object.fromEntries(Object.entries(outputs.entries).map(([name, value]) => {
       if (value.expr !== 'dict')
@@ -754,15 +859,21 @@ class DifyGraphCompiler {
   }
 
   private buildIterationNode(step: IterationStep): Node {
-    const [iteratorSelector] = this.valueOutput(step.iterator)
-    const [outputSelector, outputType] = this.sourceOutput(step.outputSource, step.outputKey ?? undefined)
+    const [iteratorSelector, inferredIteratorType] = this.valueOutput(step.iterator, step.iteratorSources)
+    const normalizedIteratorType = difyVariableType(inferredIteratorType)
+    const iteratorType = normalizedIteratorType.startsWith('array[') ? normalizedIteratorType : 'array[string]'
+    const itemType = iteratorType.slice('array['.length, -1) || 'string'
+    const itemSelector = this.localSelectors[step.itemName]
+    if (itemSelector)
+      itemSelector.type = itemType
+    const [outputSelector, outputType] = this.valueOutput(step.output, step.outputSources)
     return this.buildNode(step.id, BlockEnum.Iteration, {
       type: BlockEnum.Iteration,
       title: 'Iteration',
       desc: '',
       selected: false,
       iterator_selector: iteratorSelector,
-      iterator_input_type: 'array[string]',
+      iterator_input_type: difyVariableType(iteratorType),
       output_selector: outputSelector,
       output_type: `array[${outputType}]`,
       start_node_id: `${step.id}_start`,
@@ -863,6 +974,22 @@ class DifyGraphCompiler {
       if (step.kind === 'branch') {
         step.cases.forEach(branchCase => this.attachSequence(branchCase.body, parentId, kind))
         this.attachSequence(step.elseCase.body, parentId, kind)
+        for (const join of step.joins) {
+          const joinNode = this.joinsByKey.get(joinKey(join.variable, join.sources))
+          const node = joinNode ? this.nodes.find(candidate => candidate.id === joinNode.nodeId) : null
+          if (!node)
+            continue
+          node.parentId = parentId
+          node.position = { x: 320 + this.parentByNode.size * 280, y: 90 }
+          node.positionAbsolute = { ...node.position }
+          node.data = {
+            ...node.data,
+            ...(kind === 'iteration'
+              ? { isInIteration: true, iteration_id: parentId }
+              : { isInLoop: true, loop_id: parentId }),
+          }
+          this.parentByNode.set(node.id, parentId)
+        }
       }
     }
   }
@@ -872,7 +999,7 @@ class DifyGraphCompiler {
       case_id: branchCase.caseId,
       logical_operator: branchCase.condition.logical,
       conditions: branchCase.condition.comparisons.map((comparison, index) => (
-        this.buildCondition(step.id, branchCase.caseId, index, comparison)
+        this.buildCondition(step.id, branchCase.caseId, index, comparison, branchCase.sources)
       )),
     }))
     return this.buildNode(step.id, BlockEnum.IfElse, {
@@ -886,26 +1013,21 @@ class DifyGraphCompiler {
     }, BRANCH_HEIGHT)
   }
 
-  private buildCondition(branchId: string, caseId: string, index: number, comparison: ParsedComparison) {
+  private buildCondition(
+    branchId: string,
+    caseId: string,
+    index: number,
+    comparison: ParsedComparison,
+    sourceOverrides?: Record<string, string[]>,
+  ) {
     let selector: string[]
     let variableType: string
     const access = this.comparisonAccess(comparison)
     if (access) {
-      const sourceId = this.singleVariableSource(access.variable)
-      selector = [sourceId, 'structured_output', access.key]
-      variableType = this.structuredFields.get(sourceId)?.[access.key] ?? 'string'
+      [selector, variableType] = this.accessOutput(access.variable, access.key, sourceOverrides)
     }
     else {
-      const sources = this.variables[comparison.variable] ?? []
-      if (!sources.length) {
-        [selector, variableType] = this.variableOutput(comparison.variable)
-      }
-      else if (sources.length === 1) {
-        [selector, variableType] = this.sourceOutput(sources[0]!)
-      }
-      else {
-        throw new AgentNetworkCompileError(`Condition variable ${comparison.variable} has multiple producers`)
-      }
+      [selector, variableType] = this.variableOutput(comparison.variable, new Set(), sourceOverrides)
     }
     const value = conditionValue(comparison.operator, comparison.value)
     if (value === null)
@@ -950,6 +1072,14 @@ class DifyGraphCompiler {
       }
       else if (step.kind === 'branch') {
         exits = this.walkBranch(step)
+        for (const join of step.joins) {
+          const joinOutput = this.joinsByKey.get(joinKey(join.variable, join.sources))
+          if (!joinOutput)
+            throw new AgentNetworkCompileError(`Missing variable join for ${join.variable}`, step.line)
+          for (const edge of exits)
+            this.appendEdge(edge.nodeId, joinOutput.nodeId, edge.sourceHandle)
+          exits = [{ nodeId: joinOutput.nodeId, sourceHandle: SOURCE_HANDLE }]
+        }
       }
       else {
         const startId = `${step.id}_start`
@@ -974,80 +1104,151 @@ class DifyGraphCompiler {
   }
 
   private appendTerminalNodes(terminal: Terminal, incoming: Incoming[]) {
-    for (const edge of incoming) {
-      const count = (this.terminalCounts.get(terminal.id) ?? 0) + 1
-      this.terminalCounts.set(terminal.id, count)
-      let nodeId = incoming.length === 1 ? terminal.id : `${terminal.id}_${edge.nodeId}`
-      if (count > 1 && nodeId === terminal.id)
-        nodeId = `${terminal.id}_${count}`
-      if (terminal.via === 'reply') {
+    if (terminal.via === 'reply') {
+      for (const edge of incoming) {
+        const nodeId = incoming.length === 1 ? terminal.id : `${terminal.id}_${edge.nodeId}`
         this.appendNode(this.buildNode(nodeId, BlockEnum.Answer, {
           type: BlockEnum.Answer,
           title: 'Answer',
           desc: '',
           selected: false,
-          answer: this.renderValue(terminal.output!),
+          answer: this.renderValue(terminal.output!, new Set(), terminal.sources),
         }))
         this.appendEdge(edge.nodeId, nodeId, edge.sourceHandle)
-        continue
       }
-      const [selector, valueType] = this.terminalOutput(terminal, edge.nodeId)
-      this.appendNode(this.buildNode(nodeId, BlockEnum.End, {
-        type: BlockEnum.End,
-        title: 'End',
-        desc: '',
-        selected: false,
-        outputs: [{
-          variable: terminal.assignedName || 'result',
-          value_selector: selector,
-          value_type: difyVariableType(valueType),
-        }],
-      }))
-      this.appendEdge(edge.nodeId, nodeId, edge.sourceHandle)
+      return
+    }
+
+    let endIncoming = incoming
+    const resolved = terminal.output
+      ? this.resolveTerminalValue(terminal.output, terminal.sources)
+      : null
+    let outputs: Array<{ variable: string, value_selector: string[], value_type: string }>
+    if (terminal.outputStep) {
+      if (incoming.length !== 1 || terminal.outputStep !== incoming[0]?.nodeId)
+        throw new AgentNetworkCompileError(`Output ${terminal.id} does not match its control-flow source`, terminal.line)
+      const [selector, valueType] = this.sourceOutput(terminal.outputStep)
+      outputs = [this.endOutput(terminal.assignedName || 'result', selector, valueType)]
+    }
+    else if (resolved?.value.expr === 'dict' && Object.values(resolved.value.entries).every(value => value.expr === 'var' || value.expr === 'access')) {
+      outputs = Object.entries(resolved.value.entries).map(([name, value]) => {
+        const [selector, valueType] = this.valueOutput(value, resolved.sources)
+        return this.endOutput(name, selector, valueType)
+      })
+    }
+    else if (resolved?.value.expr === 'var' || resolved?.value.expr === 'access') {
+      const [selector, valueType] = this.valueOutput(resolved.value, resolved.sources)
+      outputs = [this.endOutput(terminal.assignedName || 'result', selector, valueType)]
+    }
+    else if (resolved) {
+      const expressionId = `${terminal.id}_expression`
+      this.appendNode(this.buildTerminalExpressionNode(expressionId, resolved.value, resolved.sources))
+      for (const edge of incoming)
+        this.appendEdge(edge.nodeId, expressionId, edge.sourceHandle)
+      endIncoming = [{ nodeId: expressionId, sourceHandle: SOURCE_HANDLE }]
+      outputs = [this.endOutput(terminal.assignedName || 'result', [expressionId, 'result'], parsedValueType(resolved.value))]
+    }
+    else {
+      throw new AgentNetworkCompileError('Workflow output is empty', terminal.line)
+    }
+
+    this.appendNode(this.buildNode(terminal.id, BlockEnum.End, {
+      type: BlockEnum.End,
+      title: 'End',
+      desc: '',
+      selected: false,
+      outputs,
+    }))
+    for (const edge of endIncoming)
+      this.appendEdge(edge.nodeId, terminal.id, edge.sourceHandle)
+  }
+
+  private resolveTerminalValue(
+    initialValue: ParsedValue,
+    initialSources: Record<string, string[]>,
+  ): { value: ParsedValue, sources: Record<string, string[]> } {
+    let value = initialValue
+    let sources = initialSources
+    const resolving = new Set<string>()
+    while (value.expr === 'var') {
+      const currentSources = sources[value.name] ?? this.variables[value.name] ?? []
+      if (currentSources.length)
+        break
+      const binding = this.bindingsByTarget.get(value.name)
+      if (!binding)
+        break
+      if (resolving.has(value.name))
+        throw new AgentNetworkCompileError(`Variable binding cycle includes ${value.name}`)
+      resolving.add(value.name)
+      value = binding.value
+      sources = binding.sources
+    }
+    return { value, sources }
+  }
+
+  private endOutput(variable: string, selector: string[], valueType: string) {
+    return {
+      variable,
+      value_selector: selector,
+      value_type: difyVariableType(valueType),
     }
   }
 
-  private terminalOutput(terminal: Terminal, incomingSource: string): [string[], string] {
-    if (terminal.outputStep) {
-      if (terminal.outputStep !== incomingSource)
-        throw new AgentNetworkCompileError(`Output ${terminal.id} does not match its control-flow source`, terminal.line)
-      return this.sourceOutput(terminal.outputStep)
-    }
-    if (terminal.output?.expr === 'access')
-      return this.valueOutput(terminal.output)
-    if (!terminal.output || terminal.output.refs.length !== 1)
-      throw new AgentNetworkCompileError('Workflow outputs must reference exactly one variable', terminal.line)
-    const variable = terminal.output.refs[0]!
-    const sources = this.variables[variable] ?? []
-    if (sources.length <= 1)
-      return this.variableOutput(variable)
-    if (!sources.includes(incomingSource))
-      throw new AgentNetworkCompileError(`Output variable ${variable} cannot be matched to ${incomingSource}`, terminal.line)
-    return this.sourceOutput(incomingSource)
+  private buildTerminalExpressionNode(
+    nodeId: string,
+    value: ParsedValue,
+    sourceOverrides: Record<string, string[]>,
+  ): Node {
+    const references = [...new Set(value.refs)]
+    const parameters = references.join(', ')
+    const variables = references.map(variable => ({
+      variable,
+      value_selector: this.variableOutput(variable, new Set(), sourceOverrides)[0],
+    }))
+    return this.buildNode(nodeId, BlockEnum.Code, {
+      type: BlockEnum.Code,
+      title: 'Build final_result',
+      desc: '',
+      selected: false,
+      variables,
+      code_language: 'python3',
+      code: `def main(${parameters}):\n    return {"result": ${value.raw}}`,
+      outputs: {
+        result: { type: difyVariableType(parsedValueType(value)), children: null },
+      },
+      agent_network_synthetic_expression: value.raw,
+    })
   }
 
   private renderCallPrompt(step: CallStep): string {
-    const args = step.args.map(value => this.renderValue(value)).filter(Boolean)
+    const args = step.args.map(value => this.renderValue(value, new Set(), step.sources)).filter(Boolean)
     const kwargs = Object.entries(step.kwargs)
     if (!args.length && kwargs.length === 1 && kwargs[0]?.[0] === 'task')
-      return this.renderValue(kwargs[0][1])
-    return [...args, ...kwargs.map(([name, value]) => `${name}: ${this.renderValue(value)}`)].join('\n')
+      return this.renderValue(kwargs[0][1], new Set(), step.sources)
+    return [
+      ...args,
+      ...kwargs.map(([name, value]) => `${name}: ${this.renderValue(value, new Set(), step.sources)}`),
+    ].join('\n')
   }
 
-  private renderValue(value: ParsedValue, resolving = new Set<string>()): string {
+  private renderValue(
+    value: ParsedValue,
+    resolving = new Set<string>(),
+    sourceOverrides?: Record<string, string[]>,
+  ): string {
     if (value.expr === 'access')
-      return selectorTemplate(this.valueOutput(value)[0])
+      return selectorTemplate(this.valueOutput(value, sourceOverrides)[0])
     if (value.expr === 'list' || value.expr === 'dict')
       return JSON.stringify(this.literalValue(value, null))
     if (value.expr === 'var') {
-      const sources = this.variables[value.name] ?? []
+      const sources = sourceOverrides?.[value.name] ?? this.variables[value.name] ?? []
       const binding = this.bindingsByTarget.get(value.name)
       if (!sources.length && !(value.name in this.inputTypes) && binding) {
         if (resolving.has(value.name))
           throw new AgentNetworkCompileError(`Variable binding cycle includes ${value.name}`)
-        return this.renderValue(binding.value, new Set([...resolving, value.name]))
+        return this.renderValue(binding.value, new Set([...resolving, value.name]), binding.sources)
       }
-      return selectorTemplate(this.variableOutput(value.name)[0])
+      return selectorTemplate(this.variableOutput(value.name, resolving, sourceOverrides)[0])
     }
     if (value.expr === 'const')
       return value.value === null ? '' : typeof value.value === 'boolean' ? String(value.value) : `${value.value}`
@@ -1060,44 +1261,79 @@ class DifyGraphCompiler {
         return this.renderValue(
           { expr: 'var', name: part.var, raw: part.var, refs: [part.var] },
           resolving,
+          sourceOverrides,
         )
       }
       throw new AgentNetworkCompileError(`Unsupported template expression ${part.rawExpression}`)
     }).join('')
   }
 
-  private valueOutput(value: ParsedValue): [string[], string] {
+  private valueOutput(
+    value: ParsedValue,
+    sourceOverrides?: Record<string, string[]>,
+  ): [string[], string] {
     if (value.expr === 'var')
-      return this.variableOutput(value.name)
-    if (value.expr === 'access') {
-      const sources = this.variables[value.variable] ?? []
-      if (sources.length !== 1)
-        throw new AgentNetworkCompileError(`Variable ${value.variable} must have exactly one producer`)
-      return this.sourceOutput(sources[0]!, value.key)
-    }
+      return this.variableOutput(value.name, new Set(), sourceOverrides)
+    if (value.expr === 'access')
+      return this.accessOutput(value.variable, value.key, sourceOverrides)
     throw new AgentNetworkCompileError(`Expression ${value.raw} cannot be represented as a Dify selector`)
   }
 
-  private variableOutput(variable: string, resolving = new Set<string>()): [string[], string] {
-    const sources = this.variables[variable] ?? []
+  private accessOutput(
+    variable: string,
+    key: string,
+    sourceOverrides?: Record<string, string[]>,
+    resolving = new Set<string>(),
+  ): [string[], string] {
+    const binding = this.bindingsByTarget.get(variable)
+    if (binding?.value.expr === 'var') {
+      if (resolving.has(variable))
+        throw new AgentNetworkCompileError(`Variable binding cycle includes ${variable}`)
+      return this.accessOutput(binding.value.name, key, binding.sources, new Set([...resolving, variable]))
+    }
+
+    const sources = sourceOverrides?.[variable] ?? this.variables[variable] ?? []
+    if (sources.length === 1)
+      return this.sourceOutput(sources[0]!, key)
+    if (sources.length > 1) {
+      const join = this.joinsByKey.get(joinKey(variable, sources))
+      if (!join)
+        throw new AgentNetworkCompileError(`Variable ${variable} has multiple producers without a matching branch join`)
+      const outputTypes = [...new Set(sources.map(source => this.sourceOutput(source, key)[1]))]
+      return [[join.nodeId, 'output', key], outputTypes.length === 1 ? outputTypes[0]! : 'any']
+    }
+    throw new AgentNetworkCompileError(`Variable ${variable} has no producer for field ${key}`)
+  }
+
+  private variableOutput(
+    variable: string,
+    resolving = new Set<string>(),
+    sourceOverrides?: Record<string, string[]>,
+  ): [string[], string] {
+    const binding = this.bindingsByTarget.get(variable)
+    if (binding?.value.expr === 'var') {
+      if (resolving.has(variable))
+        throw new AgentNetworkCompileError(`Variable binding cycle includes ${variable}`)
+      return this.variableOutput(binding.value.name, new Set([...resolving, variable]), binding.sources)
+    }
+    if (binding?.value.expr === 'access')
+      return this.valueOutput(binding.value, binding.sources)
+
+    const sources = sourceOverrides?.[variable] ?? this.variables[variable] ?? []
     if (sources.length === 1)
       return this.sourceOutput(sources[0]!)
-    if (sources.length > 1)
-      throw new AgentNetworkCompileError(`Variable ${variable} has multiple producers outside an output join`)
+    if (sources.length > 1) {
+      const join = this.joinsByKey.get(joinKey(variable, sources))
+      if (join)
+        return [[join.nodeId, 'output'], join.outputType]
+      throw new AgentNetworkCompileError(`Variable ${variable} has multiple producers without a matching branch join`)
+    }
     const local = this.localSelectors[variable]
     if (local)
       return [[local.nodeId, local.key], local.type]
     if (variable in this.inputTypes)
       return [[START_NODE_ID, variable], schemaTypeForInput(this.inputTypes[variable])]
 
-    const binding = this.bindingsByTarget.get(variable)
-    if (binding?.value.expr === 'var') {
-      if (resolving.has(variable))
-        throw new AgentNetworkCompileError(`Variable binding cycle includes ${variable}`)
-      return this.variableOutput(binding.value.name, new Set([...resolving, variable]))
-    }
-    if (binding?.value.expr === 'access')
-      return this.valueOutput(binding.value)
     throw new AgentNetworkCompileError(`Variable ${variable} cannot be represented as a Dify value selector`)
   }
 
@@ -1142,13 +1378,6 @@ class DifyGraphCompiler {
     if (value.expr === 'dict')
       return Object.fromEntries(Object.entries(value.entries).map(([key, item]) => [key, this.literalValue(item, line)]))
     throw new AgentNetworkCompileError(`Expected a literal value, received ${value.raw}`, line)
-  }
-
-  private singleVariableSource(variable: string): string {
-    const sources = this.variables[variable] ?? []
-    if (sources.length !== 1)
-      throw new AgentNetworkCompileError(`Variable ${variable} must have exactly one producer`)
-    return sources[0]!
   }
 
   private buildNode(id: string, nodeType: BlockEnum, data: Record<string, unknown>, height = NODE_HEIGHT): Node {
@@ -1307,7 +1536,7 @@ function comparisonOperator(operator: string, variableType: string): string {
   if (operator === 'falsy')
     return 'empty'
   if (variableType === 'number') {
-    const numeric: Record<string, string> = { '==': '=', '!=': '≠', '>': '>', '>=': '≥', '<': '<', '<=': '≤' }
+    const numeric: Record<string, string> = { '==': '=', '!=': '\u2260', '>': '>', '>=': '\u2265', '<': '<', '<=': '\u2264' }
     if (numeric[operator])
       return numeric[operator]
   }

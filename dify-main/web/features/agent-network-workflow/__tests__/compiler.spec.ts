@@ -38,6 +38,7 @@ type GeneratedNodeData = {
   }>
   model: Record<string, unknown>
   custom_default?: unknown
+  agent_network_synthetic_expression?: string
 }
 
 function nodesById(result: ReturnType<typeof compileAgentNetworkPseudocode>): Record<string, Node<GeneratedNodeData>> {
@@ -62,12 +63,12 @@ describe('compileAgentNetworkPseudocode', () => {
 
       expect(Object.keys(nodes)).toEqual([
         'start',
+        'branch_1_join_answer',
         'reasoninggroup',
         'branch_1',
         'calculatorgroup',
         'searchgroup',
-        'terminal_1_calculatorgroup',
-        'terminal_1_searchgroup',
+        'terminal_1',
       ])
       expect(result.graph.viewport).toEqual({ x: 0, y: 0, zoom: 0.7 })
       expect(nodes.start?.data.variables).toEqual([
@@ -106,27 +107,210 @@ describe('compileAgentNetworkPseudocode', () => {
         'reasoninggroup:source->branch_1:target',
         'branch_1:case_1->calculatorgroup:target',
         'branch_1:false->searchgroup:target',
-        'calculatorgroup:source->terminal_1_calculatorgroup:target',
-        'searchgroup:source->terminal_1_searchgroup:target',
+        'calculatorgroup:source->branch_1_join_answer:target',
+        'searchgroup:source->branch_1_join_answer:target',
+        'branch_1_join_answer:source->terminal_1:target',
       ]))
     })
 
-    it('should generate branch-specific outputs and topological positions', () => {
+    it('should aggregate branch outputs into one End node', () => {
       const result = compileAgentNetworkPseudocode(source, { model })
       const nodes = nodesById(result)
 
-      expect(nodes.terminal_1_calculatorgroup?.data.outputs[0]).toEqual({
+      expect(nodes.branch_1_join_answer?.data).toMatchObject({
+        type: 'variable-aggregator',
+        output_type: 'string',
+        variables: [
+          ['calculatorgroup', 'text'],
+          ['searchgroup', 'text'],
+        ],
+        agent_network_variable: 'answer',
+        agent_network_synthetic_join: true,
+      })
+      expect(nodes.terminal_1?.data.outputs[0]).toEqual({
         variable: 'final_result',
-        value_selector: ['calculatorgroup', 'text'],
+        value_selector: ['branch_1_join_answer', 'output'],
         value_type: 'string',
       })
-      expect(nodes.terminal_1_searchgroup?.data.outputs[0]?.value_selector).toEqual(['searchgroup', 'text'])
+      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(1)
       expect(nodes.start?.position.x).toBeLessThan(nodes.reasoninggroup!.position.x)
       expect(nodes.reasoninggroup?.position.x).toBeLessThan(nodes.branch_1!.position.x)
       expect(nodes.calculatorgroup?.position.x).toBe(nodes.searchgroup?.position.x)
       expect(nodes.calculatorgroup?.position.y).not.toBe(nodes.searchgroup?.position.y)
     })
 
+    it('should feed a joined branch variable into any downstream Group', () => {
+      const result = compileAgentNetworkPseudocode(`
+kind = ReasoningGroup(task=task)
+if kind == "calc":
+    answer = CalculatorGroup(task=task)
+else:
+    answer = SearchGroup(task=task)
+email_result = EmailGenerationGroup(
+    task="Generate an email",
+    answer=answer,
+)
+final_result = email_result
+`, { model })
+      const nodes = nodesById(result)
+      const prompt = nodes.emailgenerationgroup?.data.prompt_template[0]?.text
+
+      expect(nodes.branch_1_join_answer?.data.variables).toEqual([
+        ['calculatorgroup', 'text'],
+        ['searchgroup', 'text'],
+      ])
+      expect(prompt).toContain('answer: {{#branch_1_join_answer.output#}}')
+      expect(edgeKeys(result)).toContain('calculatorgroup:source->branch_1_join_answer:target')
+      expect(edgeKeys(result)).toContain('searchgroup:source->branch_1_join_answer:target')
+      expect(edgeKeys(result)).toContain('branch_1_join_answer:source->emailgenerationgroup:target')
+      expect(edgeKeys(result)).toContain('emailgenerationgroup:source->terminal_1:target')
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['emailgenerationgroup', 'text'])
+    })
+    it('should resolve the nearest join for a variable consumed inside nested branches', () => {
+      const result = compileAgentNetworkPseudocode(`
+if enabled:
+    if detailed:
+        answer = DetailGroup(task=task)
+    else:
+        answer = SimpleGroup(task=task)
+    summary = SummaryGroup(task=answer)
+else:
+    answer = DisabledGroup(task=task)
+    summary = DisabledSummaryGroup(task=answer)
+final_result = summary
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.branch_2_join_answer?.data.variables).toEqual([
+        ['detailgroup', 'text'],
+        ['simplegroup', 'text'],
+      ])
+      expect(nodes.summarygroup?.data.prompt_template[0]?.text).toContain('{{#branch_2_join_answer.output#}}')
+      expect(nodes.branch_1_join_summary?.data.variables).toEqual([
+        ['summarygroup', 'text'],
+        ['disabledsummarygroup', 'text'],
+      ])
+      expect(nodes.branch_1_join_answer).toBeUndefined()
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['branch_1_join_summary', 'output'])
+    })
+
+    it('should join multiple variables from the same branch without special variable names', () => {
+      const result = compileAgentNetworkPseudocode(`
+if enabled:
+    first = AlphaGroup(task=task)
+    second = BetaGroup(task=task)
+else:
+    first = GammaGroup(task=task)
+    second = DeltaGroup(task=task)
+combined = CombineGroup(task=first, other=second)
+final_result = combined
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.branch_1_join_first?.data.variables).toEqual([
+        ['alphagroup', 'text'],
+        ['gammagroup', 'text'],
+      ])
+      expect(nodes.branch_1_join_second?.data.variables).toEqual([
+        ['betagroup', 'text'],
+        ['deltagroup', 'text'],
+      ])
+      expect(nodes.combinegroup?.data.prompt_template[0]?.text).toContain('{{#branch_1_join_first.output#}}')
+      expect(nodes.combinegroup?.data.prompt_template[0]?.text).toContain('{{#branch_1_join_second.output#}}')
+      expect(edgeKeys(result)).toContain('branch_1_join_first:source->branch_1_join_second:target')
+      expect(edgeKeys(result)).toContain('branch_1_join_second:source->combinegroup:target')
+    })
+    it('should resolve an alias of a joined branch variable', () => {
+      const result = compileAgentNetworkPseudocode(`
+if enabled:
+    answer = AlphaGroup(task=task)
+else:
+    answer = BetaGroup(task=task)
+selected = answer
+final_result = selected
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['branch_1_join_answer', 'output'])
+      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(1)
+    })
+
+    it('should resolve structured field access through an alias of a branch join', () => {
+      const result = compileAgentNetworkPseudocode(`
+if enabled:
+    answer = AlphaGroup(task=task)
+else:
+    answer = BetaGroup(task=task)
+selected = answer
+if selected.get("kind") == "done":
+    final = DoneGroup(task=task)
+else:
+    final = RetryGroup(task=task)
+final_result = final
+`, { model })
+      const nodes = nodesById(result)
+      const condition = nodes.branch_2?.data.cases[0]?.conditions[0]
+
+      expect(condition?.variable_selector).toEqual(['branch_1_join_answer', 'output', 'kind'])
+      expect(nodes.alphagroup?.data.structured_output_enabled).toBe(true)
+      expect(nodes.betagroup?.data.structured_output_enabled).toBe(true)
+    })
+    it('should use a branch join as an Iteration output and propagate its input type', () => {
+      const result = compileAgentNetworkPseudocode(`
+results = []
+for iteration_index, iteration_item in enumerate(files):
+    if enabled:
+        answer = AlphaGroup(task=iteration_item)
+    else:
+        answer = BetaGroup(task=iteration_item)
+    results.append(answer)
+final_result = results
+`, { model, inputTypes: { files: 'file-list' } })
+      const nodes = nodesById(result)
+
+      expect(nodes.iteration_1?.data).toMatchObject({
+        iterator_input_type: 'array[file]',
+        output_selector: ['branch_1_join_answer', 'output'],
+        output_type: 'array[string]',
+      })
+      expect(nodes.branch_1_join_answer?.parentId).toBe('iteration_1')
+      expect(edgeKeys(result)).toContain('alphagroup:source->branch_1_join_answer:target')
+      expect(edgeKeys(result)).toContain('betagroup:source->branch_1_join_answer:target')
+    })
+
+    it('should preserve wrapped final expressions through a synthetic Code node', () => {
+      const result = compileAgentNetworkPseudocode(`
+answer = EchoGroup(task=task)
+final_result = f"Result: {answer}"
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.terminal_1_expression?.data).toMatchObject({
+        type: 'code',
+        variables: [{ variable: 'answer', value_selector: ['echogroup', 'text'] }],
+        agent_network_synthetic_expression: 'f"Result: {answer}"',
+      })
+      expect(nodes.terminal_1?.data.outputs[0]).toEqual({
+        variable: 'final_result',
+        value_selector: ['terminal_1_expression', 'result'],
+        value_type: 'string',
+      })
+    })
+
+    it('should map a final result dictionary to one multi-output End node', () => {
+      const result = compileAgentNetworkPseudocode(`
+first = AlphaGroup(task=task)
+second = BetaGroup(task=task)
+final_result = {"first": first, "second": second}
+`, { model })
+      const nodes = nodesById(result)
+
+      expect(nodes.terminal_1?.data.outputs).toEqual([
+        { variable: 'first', value_selector: ['alphagroup', 'text'], value_type: 'string' },
+        { variable: 'second', value_selector: ['betagroup', 'text'], value_type: 'string' },
+      ])
+      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(1)
+    })
     it('should normalize AgentNetwork result.value.get conditions and final outputs', () => {
       const result = compileAgentNetworkPseudocode(`
 kind_node = ReasoningGroup(task=task)
@@ -378,7 +562,7 @@ final_result = answer
         'CalculatorGroup',
         'SearchGroup',
       ]))
-      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(2)
+      expect(result.graph.nodes.filter(node => node.data.type === 'end')).toHaveLength(1)
       expect(result.warnings).toEqual(expect.arrayContaining([
         expect.stringContaining('one-iteration Dify Loop'),
       ]))
@@ -458,12 +642,16 @@ final_result = answer
       )).toThrow(/Dify model/)
     })
 
-    it('should reject local constant outputs that have no Dify selector', () => {
-      expect(() => compileAgentNetworkPseudocode('final_result = "static"', { model }))
-        .toThrow(/must reference exactly one variable/)
+    it('should preserve local constant outputs through a synthetic Code node', () => {
+      const direct = nodesById(compileAgentNetworkPseudocode('final_result = "static"', { model }))
+      expect(direct.terminal_1_expression?.data).toMatchObject({
+        type: 'code',
+        variables: [],
+        agent_network_synthetic_expression: '"static"',
+      })
 
-      expect(() => compileAgentNetworkPseudocode('value = "static"\nfinal_result = value', { model }))
-        .toThrow(/cannot be represented as a Dify value selector/)
+      const alias = nodesById(compileAgentNetworkPseudocode('value = "static"\nfinal_result = value', { model }))
+      expect(alias.terminal_1_expression?.data.agent_network_synthetic_expression).toBe('"static"')
     })
 
     it('should expose compiler errors as AgentNetworkCompileError', () => {

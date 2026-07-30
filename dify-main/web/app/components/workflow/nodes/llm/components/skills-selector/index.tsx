@@ -27,6 +27,7 @@ const SKILL_OPTIONS: SkillOption[] = [
   { label: 'download_attachments', value: 'download_attachments' },
   { label: 'gimp-blur-region', value: 'gimp-blur-region' },
   { label: 'gimp-remove-background', value: 'gimp-remove-background' },
+  { label: 'email_agent', value: 'email_agent' },
 ]
 
 const getSkillLabel = (option: SkillOption) => option.label
