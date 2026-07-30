@@ -34,3 +34,5 @@ web/*.iws
 web/*.ipr
 e2e/node_modules
 sdks/nodejs-client/node_modules
+packages/**/node_modules
+packages/**/node_modules/**
