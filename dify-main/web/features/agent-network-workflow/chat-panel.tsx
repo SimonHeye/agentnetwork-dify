@@ -339,7 +339,7 @@ export function AgentNetworkChatPanel() {
         code: generated.source,
         params: {},
         need_task: false,
-        need_match: false,
+        need_match: true,
         include_agents: true,
       })
 

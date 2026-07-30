@@ -106,7 +106,7 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
         code: nextResult.source,
         params: {},
         need_task: false,
-        need_match: false,
+        need_match: true,
         include_agents: true,
       })
       setExecutionResult(nextExecutionResult)

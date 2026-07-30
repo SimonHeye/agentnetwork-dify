@@ -6,7 +6,7 @@ const input: AgentNetworkExecuteInput = {
   code: 'answer = SearchGroup(task=task)\nfinal_result = answer\n',
   params: {},
   need_task: false,
-  need_match: false,
+  need_match: true,
   include_agents: true,
 }
 
@@ -80,7 +80,7 @@ describe('POST /internal/agent-network/pseudocode', () => {
       code: 'final_result = task',
       params: {},
       need_task: false,
-      need_match: false,
+      need_match: true,
       include_agents: true,
     })
   })

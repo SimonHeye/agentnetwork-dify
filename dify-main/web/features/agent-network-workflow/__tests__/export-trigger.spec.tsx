@@ -5,6 +5,7 @@ import { AgentNetworkPseudocodeTrigger } from '../export-trigger'
 const mockExportPseudocode = vi.hoisted(() => vi.fn())
 const mockExecuteCode = vi.hoisted(() => vi.fn())
 const mockFetchConversation = vi.hoisted(() => vi.fn())
+const mockSaveExecutionResult = vi.hoisted(() => vi.fn())
 const mockDoSyncWorkflowDraft = vi.hoisted(() => vi.fn())
 const mockToastSuccess = vi.hoisted(() => vi.fn())
 const mockToastError = vi.hoisted(() => vi.fn())
@@ -30,6 +31,7 @@ vi.mock('../execute-code', () => ({
 
 vi.mock('../conversation-service', () => ({
   fetchAgentNetworkConversation: mockFetchConversation,
+  saveAgentNetworkExecutionResult: mockSaveExecutionResult,
 }))
 
 const result = {
@@ -57,6 +59,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
       created_at: 1,
       updated_at: 1,
     }))
+    mockSaveExecutionResult.mockResolvedValue(undefined)
     mockExportPseudocode.mockReturnValue(result)
     mockExecuteCode.mockResolvedValue({
       finalResult: { value: 'done', raw: { answer: 'raw' } },
@@ -102,7 +105,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
       code: result.source,
       params: {},
       need_task: false,
-      need_match: false,
+      need_match: true,
       include_agents: true,
     }))
     const saveCallOrder = mockDoSyncWorkflowDraft.mock.invocationCallOrder.at(0)
@@ -112,7 +115,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
     if (saveCallOrder === undefined || sendCallOrder === undefined)
       throw new Error('Expected both save and delivery calls')
     expect(saveCallOrder).toBeLessThan(sendCallOrder)
-    expect(mockToastSuccess).toHaveBeenCalledWith('done')
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('done'))
     expect(await screen.findByText('final_result')).toBeInTheDocument()
     expect(screen.getByText('SearchGroup')).toBeInTheDocument()
   })

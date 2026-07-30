@@ -9,7 +9,7 @@ const requestSchema = z.object({
   code: z.string().min(1).max(1_000_000),
   params: z.record(z.string(), executeParamSchema).optional().default({}),
   need_task: z.boolean().optional().default(false),
-  need_match: z.boolean().optional().default(false),
+  need_match: z.boolean().optional().default(true),
   include_agents: z.boolean().optional().default(true),
 }).strict()
 

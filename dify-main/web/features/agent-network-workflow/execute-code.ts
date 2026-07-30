@@ -24,7 +24,7 @@ export async function executeAgentNetworkCode(
       ...input,
       params: input.params ?? {},
       need_task: input.need_task ?? false,
-      need_match: input.need_match ?? false,
+      need_match: input.need_match ?? true,
       include_agents: input.include_agents ?? true,
     }),
   })
