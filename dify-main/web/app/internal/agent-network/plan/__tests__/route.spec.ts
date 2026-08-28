@@ -36,10 +36,12 @@ describe('POST /internal/agent-network/plan', () => {
 
     const response = await POST(createRequest({
       appId: 'app-1',
+      id: 'conversation-1',
       task: 'Build a search workflow',
       includeAgents: true,
       model: 'deepseek-chat',
       extraInstructions: 'Only use SearchGroup',
+      existCode: 'final_result = previous_result',
     }))
 
     expect(response.status).toBe(200)
@@ -56,8 +58,10 @@ describe('POST /internal/agent-network/plan', () => {
     const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(payload).toMatchObject({
       task: 'Build a search workflow',
+      id: 'conversation-1',
       include_agents: true,
       model: 'deepseek-chat',
+      exist_code: 'final_result = previous_result',
     })
     expect(payload.extra_instructions).toContain('converted into a Dify workflow graph')
     expect(payload.extra_instructions).toContain('enumerate(iterator)')
@@ -70,17 +74,18 @@ describe('POST /internal/agent-network/plan', () => {
       pseudocode: 'final_result = task',
     }), { status: 200 }))
 
-    await POST(createRequest({ appId: 'app-1', task: 'task' }))
+    await POST(createRequest({ appId: 'app-1', id: 'conversation-1', task: 'task' }))
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
-    expect(requestBody).toMatchObject({ task: 'task', include_agents: false })
+    expect(requestBody).toMatchObject({ task: 'task', id: 'conversation-1', include_agents: false })
+    expect(requestBody).not.toHaveProperty('exist_code')
     expect(requestBody.extra_instructions).toContain('never access .value, .raw, or .get()')
     expect(requestBody.extra_instructions).toContain('range(POSITIVE_INTEGER)')
     expect(requestBody.extra_instructions).toContain('Assign the final output to final_result')
   })
 
   it('should reject cross-origin browser requests', async () => {
-    const response = await POST(createRequest({ appId: 'app-1', task: 'task' }, 'https://example.com'))
+    const response = await POST(createRequest({ appId: 'app-1', id: 'conversation-1', task: 'task' }, 'https://example.com'))
 
     expect(response.status).toBe(403)
     expect(fetchMock).not.toHaveBeenCalled()
@@ -89,7 +94,7 @@ describe('POST /internal/agent-network/plan', () => {
   it('should surface a non-2xx Agent Network error description', async () => {
     fetchMock.mockResolvedValue(new Response('Planner model is unavailable', { status: 500 }))
 
-    const response = await POST(createRequest({ appId: 'app-1', task: 'task' }))
+    const response = await POST(createRequest({ appId: 'app-1', id: 'conversation-1', task: 'task' }))
 
     expect(response.status).toBe(502)
     await expect(response.json()).resolves.toEqual({
@@ -104,7 +109,7 @@ describe('POST /internal/agent-network/plan', () => {
       headers: { 'Content-Type': 'application/json' },
     }))
 
-    const response = await POST(createRequest({ appId: 'app-1', task: 'task' }))
+    const response = await POST(createRequest({ appId: 'app-1', id: 'conversation-1', task: 'task' }))
 
     expect(response.status).toBe(502)
     await expect(response.json()).resolves.toEqual({ code: 'AGENT_NETWORK_INVALID_RESPONSE' })

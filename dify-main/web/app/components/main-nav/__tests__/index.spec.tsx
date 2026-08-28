@@ -419,14 +419,14 @@ describe('MainNav', () => {
     expect(screen.queryByRole('link', { name: /common.menus.deployments/ })).not.toBeInTheDocument()
   })
 
-  it('aligns the global navigation spacing with the main sidebar design', () => {
+  it('hides the product logo and aligns the global navigation spacing', () => {
     mockInstalledApps = [createInstalledApp()]
 
     renderMainNav()
 
-    const logoLink = screen.getByLabelText('Dify')
-    expect(logoLink).not.toHaveClass('px-2')
-    expect(logoLink.parentElement).toHaveClass('pt-3', 'pr-2', 'pb-2', 'pl-4')
+    expect(screen.queryByLabelText('Dify')).not.toBeInTheDocument()
+    const searchButton = screen.getByRole('button', { name: /gotoAnything.searchTitle/ })
+    expect(searchButton.parentElement).toHaveClass('justify-end', 'pt-3', 'pr-2', 'pb-2', 'pl-4')
 
     const homeLink = screen.getByRole('link', { name: /common.mainNav.home/ })
     expect(homeLink.closest('nav')).toHaveClass('isolate', 'flex', 'flex-col', 'gap-px', 'p-2')

@@ -101,6 +101,7 @@ describe('AgentNetworkPseudocodeTrigger', () => {
 
     await waitFor(() => expect(mockDoSyncWorkflowDraft).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(mockExecuteCode).toHaveBeenCalledWith({
+      id: 'conversation-1',
       task: 'Original task',
       code: result.source,
       params: {},

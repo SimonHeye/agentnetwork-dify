@@ -12,14 +12,12 @@ import AppDetailTop from '@/app/components/app-sidebar/app-detail-top'
 import DatasetDetailSection from '@/app/components/app-sidebar/dataset-detail-section'
 import DatasetDetailTop from '@/app/components/app-sidebar/dataset-detail-top'
 import { useStore as useAppStore } from '@/app/components/app/store'
-import DifyLogo from '@/app/components/base/logo/dify-logo'
 import EnvNav from '@/app/components/header/env-nav'
 import { useAppContext } from '@/context/app-context'
 import { AgentDetailSection, AgentDetailTop } from '@/features/agent-v2/agent-detail/navigation'
 import { isAgentV2Enabled } from '@/features/agent-v2/feature-flag'
 import { DeploymentDetailSection, DeploymentDetailTop } from '@/features/deployments/detail/deployment-sidebar'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
-import Link from '@/next/link'
 import { usePathname } from '@/next/navigation'
 import AccountSection from './components/account-section'
 import HelpMenu from './components/help-menu'
@@ -191,28 +189,6 @@ const MainNav = ({
       activeIcon: route.activeIcon,
     })), [agentV2Enabled, canUseAppDeploy, isCurrentWorkspaceDatasetOperator, systemFeatures.enable_marketplace, t])
 
-  const renderLogo = () => {
-    const appTitle = systemFeatures.branding.enabled && systemFeatures.branding.application_title ? systemFeatures.branding.application_title : 'Dify'
-
-    return (
-      <Link
-        href="/"
-        className="flex h-8 shrink-0 items-center overflow-hidden focus-visible:ring-2 focus-visible:ring-state-accent-solid focus-visible:outline-hidden"
-        aria-label={appTitle}
-      >
-        {systemFeatures.branding.enabled && systemFeatures.branding.workspace_logo
-          ? (
-              <img
-                src={systemFeatures.branding.workspace_logo}
-                className="block h-5.5 w-auto object-contain"
-                alt=""
-              />
-            )
-          : <DifyLogo alt="" />}
-      </Link>
-    )
-  }
-
   return (
     <aside
       className={cn(
@@ -276,8 +252,7 @@ const MainNav = ({
               ? null
               : (
                   <>
-                    <div className="flex items-center justify-between pt-3 pr-2 pb-2 pl-4">
-                      {renderLogo()}
+                    <div className="flex items-center justify-end pt-3 pr-2 pb-2 pl-4">
                       <MainNavSearchButton />
                     </div>
                     <div className="p-2">

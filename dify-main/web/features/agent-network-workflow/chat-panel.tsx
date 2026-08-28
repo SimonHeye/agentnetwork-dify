@@ -129,8 +129,8 @@ export function AgentNetworkChatPanel() {
   const hasMessages = messages.length > 0
 
   const canSend = useMemo(() => {
-    return !!input.trim() && !!appId && !nodesReadOnly && !isBusy
-  }, [appId, input, isBusy, nodesReadOnly])
+    return !!input.trim() && !!appId && !!conversation && !nodesReadOnly && !isBusy
+  }, [appId, conversation, input, isBusy, nodesReadOnly])
 
   if (!isOpen)
     return null
@@ -150,7 +150,7 @@ export function AgentNetworkChatPanel() {
 
   const submit = async () => {
     const task = input.trim()
-    if (!task || !appId || isSubmitting || nodesReadOnly)
+    if (!task || !appId || !conversation || isSubmitting || nodesReadOnly)
       return
 
     const userMessageId = crypto.randomUUID()
@@ -181,7 +181,15 @@ export function AgentNetworkChatPanel() {
       savedUserMessageId = savedUserMessage.id
       replaceMessage(userMessageId, fromPersistedMessage(savedUserMessage))
 
-      const plan = await requestAgentNetworkPlan({ appId, task })
+      const previousPseudocode = messages.findLast(message => (
+        message.role === 'assistant' && !!message.pseudocode
+      ))?.pseudocode
+      const plan = await requestAgentNetworkPlan({
+        appId,
+        id: conversation.id,
+        task,
+        ...(previousPseudocode ? { existCode: previousPseudocode } : {}),
+      })
       const savedAssistantMessage = await createAgentNetworkMessage(appId, {
         role: 'assistant',
         status: 'success',
@@ -191,7 +199,9 @@ export function AgentNetworkChatPanel() {
         parent_message_id: savedUserMessage.id,
       })
 
-      replaceMessage(assistantMessageId, fromPersistedMessage(savedAssistantMessage))
+      const plannedMessage = fromPersistedMessage(savedAssistantMessage)
+      replaceMessage(assistantMessageId, plannedMessage)
+      await applyMessageToCanvas(plannedMessage, false)
     }
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -222,14 +232,16 @@ export function AgentNetworkChatPanel() {
       setIsSubmitting(false)
     }
   }
-  const applyMessageToCanvas = async (message: Message) => {
+  async function applyMessageToCanvas(message: Message, requireConfirmation = true) {
     if (!appId || !message.pseudocode || nodesReadOnly || applyingMessageId)
       return
 
-    // eslint-disable-next-line no-alert
-    const confirmed = window.confirm(t('agentNetworkChat.applyConfirm'))
-    if (!confirmed)
-      return
+    if (requireConfirmation) {
+      // eslint-disable-next-line no-alert
+      const confirmed = window.confirm(t('agentNetworkChat.applyConfirm'))
+      if (!confirmed)
+        return
+    }
 
     setApplyingMessageId(message.id)
 
@@ -309,9 +321,11 @@ export function AgentNetworkChatPanel() {
     }
   }
   const executeCurrentCanvas = async (message: Message) => {
+    const conversationId = conversation?.id
     const executeTask = conversation?.applied_task?.trim()
     if (
       !appId
+      || !conversationId
       || !executeTask
       || appliedMessageId !== message.id
       || nodesReadOnly
@@ -335,6 +349,7 @@ export function AgentNetworkChatPanel() {
         throw new Error(t('api.actionFailed'))
 
       const execution = await executeAgentNetworkCode({
+        id: conversationId,
         task: executeTask,
         code: generated.source,
         params: {},

@@ -4,10 +4,12 @@ import { isSameOriginRequest } from '../same-origin'
 
 const requestSchema = z.object({
   appId: z.string().min(1).max(128),
+  id: z.string().min(1).max(128),
   task: z.string().trim().min(1).max(100_000),
   includeAgents: z.boolean().optional().default(false),
   model: z.string().trim().min(1).max(200).optional(),
   extraInstructions: z.string().trim().min(1).max(100_000).optional(),
+  existCode: z.string().min(1).max(1_000_000).optional(),
 }).strict()
 
 const agentNetworkResponseSchema = z.object({
@@ -55,8 +57,10 @@ export async function POST(request: Request) {
       headers,
       body: JSON.stringify({
         task: input.data.task,
+        id: input.data.id,
         include_agents: input.data.includeAgents,
         ...(input.data.model ? { model: input.data.model } : {}),
+        ...(input.data.existCode ? { exist_code: input.data.existCode } : {}),
         extra_instructions: mergeCompatibilityInstructions(input.data.extraInstructions),
       }),
       cache: 'no-store',

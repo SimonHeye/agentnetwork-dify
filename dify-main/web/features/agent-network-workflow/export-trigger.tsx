@@ -102,6 +102,7 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
       }
 
       const nextExecutionResult = await executeAgentNetworkCode({
+        id: conversation.id,
         task: executeTask,
         code: nextResult.source,
         params: {},

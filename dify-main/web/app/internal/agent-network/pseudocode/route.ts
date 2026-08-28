@@ -5,6 +5,7 @@ import { isSameOriginRequest } from '../same-origin'
 const executeParamSchema = z.union([z.string(), z.number(), z.boolean()])
 
 const requestSchema = z.object({
+  id: z.string().min(1).max(128),
   task: z.string().trim().min(1).max(100_000),
   code: z.string().min(1).max(1_000_000),
   params: z.record(z.string(), executeParamSchema).optional().default({}),

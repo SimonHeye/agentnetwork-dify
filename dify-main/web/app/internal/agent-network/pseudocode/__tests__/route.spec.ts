@@ -2,6 +2,7 @@ import type { AgentNetworkExecuteInput } from '@/features/agent-network-workflow
 import { POST } from '../route'
 
 const input: AgentNetworkExecuteInput = {
+  id: 'conversation-1',
   task: 'Original task',
   code: 'answer = SearchGroup(task=task)\nfinal_result = answer\n',
   params: {},
@@ -72,10 +73,11 @@ describe('POST /internal/agent-network/pseudocode', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(executeResult), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await POST(request({ task: 'Original task', code: 'final_result = task' }))
+    await POST(request({ id: 'conversation-1', task: 'Original task', code: 'final_result = task' }))
 
     const payload = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(payload).toEqual({
+      id: 'conversation-1',
       task: 'Original task',
       code: 'final_result = task',
       params: {},

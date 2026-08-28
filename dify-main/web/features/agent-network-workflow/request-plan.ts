@@ -12,10 +12,12 @@ export type AgentNetworkPlanResult = {
 
 export async function requestAgentNetworkPlan(input: {
   appId: string
+  id: string
   task: string
   includeAgents?: boolean
   model?: string
   extraInstructions?: string
+  existCode?: string
 }): Promise<AgentNetworkPlanResult> {
   const response = await fetch(`${basePath}/internal/agent-network/plan`, {
     method: 'POST',

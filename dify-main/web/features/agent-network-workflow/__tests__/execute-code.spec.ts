@@ -4,6 +4,7 @@ import { executeAgentNetworkCode } from '../execute-code'
 vi.mock('@/utils/var', () => ({ basePath: '/dify' }))
 
 const input: AgentNetworkExecuteInput = {
+  id: 'conversation-1',
   task: 'Original task',
   code: 'final_result = task\n',
 }
@@ -43,6 +44,7 @@ describe('executeAgentNetworkCode', () => {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify({
+        id: 'conversation-1',
         task: 'Original task',
         code: 'final_result = task\n',
         params: {},
@@ -73,6 +75,7 @@ describe('executeAgentNetworkCode', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/dify/internal/agent-network/pseudocode', expect.objectContaining({
       body: JSON.stringify({
+        id: 'conversation-1',
         task: 'Original task',
         code: 'final_result = task\n',
         params: { count: 2, enabled: true },

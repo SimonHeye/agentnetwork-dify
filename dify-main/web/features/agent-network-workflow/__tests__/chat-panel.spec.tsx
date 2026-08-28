@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AgentNetworkChatPanel } from '../chat-panel'
 import { requestAgentNetworkPlan } from '../request-plan'
@@ -31,8 +31,15 @@ vi.mock('@/app/components/workflow/hooks/use-workflow', () => ({
   useNodesReadOnly: () => ({ nodesReadOnly: false }),
 }))
 
+vi.mock('@/app/components/workflow/hooks/use-nodes-sync-draft', () => ({
+  useNodesSyncDraft: () => ({ doSyncWorkflowDraft: vi.fn() }),
+}))
+
 vi.mock('../use-agent-network-workflow', () => ({
-  useAgentNetworkWorkflow: () => ({ applyPseudocode: mockApplyPseudocode }),
+  useAgentNetworkWorkflow: () => ({
+    applyPseudocode: mockApplyPseudocode,
+    exportPseudocode: vi.fn(),
+  }),
 }))
 
 vi.mock('../request-plan', () => ({ requestAgentNetworkPlan: vi.fn() }))
@@ -110,26 +117,23 @@ describe('AgentNetworkChatPanel', () => {
     })
   })
 
-  it('persists the task association and only applies after user confirmation', async () => {
+  it('should persist and automatically apply the latest planned workflow', async () => {
     const user = userEvent.setup()
     render(<AgentNetworkChatPanel />)
 
     await user.type(screen.getByRole('textbox', { name: 'agentNetworkChat.placeholder' }), 'Build a calculator workflow')
     await user.click(screen.getByRole('button', { name: 'agentNetworkChat.send' }))
 
-    const ready = await screen.findByText('agentNetworkChat.planReady')
-    expect(requestAgentNetworkPlan).toHaveBeenCalledWith({ appId: 'app-1', task: 'Build a calculator workflow' })
+    await waitFor(() => expect(requestAgentNetworkPlan).toHaveBeenCalledWith({
+      appId: 'app-1',
+      id: 'conversation-1',
+      task: 'Build a calculator workflow',
+    }))
     expect(mockCreateMessage).toHaveBeenCalledWith('app-1', expect.objectContaining({
       role: 'assistant',
       parent_message_id: 'user-1',
       pseudocode: 'final_result = task',
     }))
-    expect(mockApplyPseudocode).not.toHaveBeenCalled()
-
-    const article = ready.closest('article')
-    expect(article).not.toBeNull()
-    const buttons = within(article as HTMLElement).getAllByRole('button')
-    await user.click(buttons.at(-1)!)
 
     await waitFor(() => expect(mockApplyPseudocode).toHaveBeenCalledWith('final_result = task', {
       preservePositions: false,
@@ -138,6 +142,46 @@ describe('AgentNetworkChatPanel', () => {
     expect(mockMarkApplied).toHaveBeenCalledWith('app-1', 'assistant-1', expect.objectContaining({
       nodes_count: 2,
       edges_count: 1,
+    }))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('should append a follow-up and send the prior pseudocode as existCode', async () => {
+    mockFetchMessages.mockResolvedValue({
+      conversation: {
+        ...conversation,
+        applied_message_id: 'previous-assistant',
+        applied_task: 'Build a calculator workflow',
+      },
+      data: [
+        persistedMessage({ id: 'previous-user', content: 'Build a calculator workflow' }),
+        persistedMessage({
+          id: 'previous-assistant',
+          role: 'assistant',
+          content: 'Previous plan',
+          pseudocode: 'final_result = previous_result',
+          apply_status: 'applied',
+        }),
+      ],
+    })
+    const user = userEvent.setup()
+    render(<AgentNetworkChatPanel />)
+
+    expect(await screen.findByText('Build a calculator workflow')).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'agentNetworkChat.placeholder' }), 'Add a search step')
+    await user.click(screen.getByRole('button', { name: 'agentNetworkChat.send' }))
+
+    await waitFor(() => expect(requestAgentNetworkPlan).toHaveBeenCalledWith({
+      appId: 'app-1',
+      id: 'conversation-1',
+      task: 'Add a search step',
+      existCode: 'final_result = previous_result',
+    }))
+    expect(screen.getByText('Build a calculator workflow')).toBeInTheDocument()
+    expect(screen.getByText('Add a search step')).toBeInTheDocument()
+    await waitFor(() => expect(mockApplyPseudocode).toHaveBeenCalledWith('final_result = task', {
+      preservePositions: false,
+      saveDraft: true,
     }))
   })
 

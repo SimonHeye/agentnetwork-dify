@@ -22,10 +22,12 @@ describe('requestAgentNetworkPlan', () => {
 
     await expect(requestAgentNetworkPlan({
       appId: 'app-1',
+      id: 'conversation-1',
       task: 'task',
       includeAgents: true,
       model: 'deepseek-chat',
       extraInstructions: 'Only use SearchGroup',
+      existCode: 'final_result = previous_result',
     })).resolves.toEqual({
       pseudocode: 'final_result = task',
     })
@@ -35,10 +37,12 @@ describe('requestAgentNetworkPlan', () => {
       credentials: 'same-origin',
       body: JSON.stringify({
         appId: 'app-1',
+        id: 'conversation-1',
         task: 'task',
         includeAgents: true,
         model: 'deepseek-chat',
         extraInstructions: 'Only use SearchGroup',
+        existCode: 'final_result = previous_result',
       }),
     })
   })
@@ -49,10 +53,10 @@ describe('requestAgentNetworkPlan', () => {
       pseudocode: 'final_result = task',
     }), { status: 200 }))
 
-    await requestAgentNetworkPlan({ appId: 'app-1', task: 'task' })
+    await requestAgentNetworkPlan({ appId: 'app-1', id: 'conversation-1', task: 'task' })
 
     expect(fetchMock).toHaveBeenCalledWith('/dify/internal/agent-network/plan', expect.objectContaining({
-      body: JSON.stringify({ appId: 'app-1', task: 'task', includeAgents: false }),
+      body: JSON.stringify({ appId: 'app-1', id: 'conversation-1', task: 'task', includeAgents: false }),
     }))
   })
 
@@ -63,7 +67,7 @@ describe('requestAgentNetworkPlan', () => {
       message: 'Planner model is unavailable',
     }), { status: 502 }))
 
-    await expect(requestAgentNetworkPlan({ appId: 'app-1', task: 'task' }))
+    await expect(requestAgentNetworkPlan({ appId: 'app-1', id: 'conversation-1', task: 'task' }))
       .rejects
       .toThrow('Planner model is unavailable')
   })

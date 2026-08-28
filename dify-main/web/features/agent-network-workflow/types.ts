@@ -55,6 +55,7 @@ export type AgentNetworkReverseResult = {
 export type AgentNetworkExecuteParam = string | number | boolean
 
 export type AgentNetworkExecuteInput = {
+  id: string
   task: string
   code: string
   params?: Record<string, AgentNetworkExecuteParam>
