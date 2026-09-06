@@ -8,12 +8,11 @@ import { Textarea } from '@langgenius/dify-ui/textarea'
 import { toast } from '@langgenius/dify-ui/toast'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useStore as useReactFlowStore } from 'reactflow'
 import { useStore as useAppStore } from '@/app/components/app/store'
 import { useNodesSyncDraft } from '@/app/components/workflow/hooks/use-nodes-sync-draft'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
 import { usePathname, useRouter } from '@/next/navigation'
-import { AgentNetworkExecutionResult } from './execution-result'
-import { executeAgentNetworkCode } from './execute-code'
 import {
 
   clearAgentNetworkMessages,
@@ -22,9 +21,13 @@ import {
   markAgentNetworkMessageApplied,
   markAgentNetworkMessageApplyFailed,
   saveAgentNetworkExecutionResult,
+  updateAgentNetworkMessagePseudocode,
 } from './conversation-service'
-import { requestAgentNetworkPlan } from './request-plan'
+import { executeAgentNetworkCode } from './execute-code'
+import { AgentNetworkExecutionResult } from './execution-result'
 import { formatAgentNetworkFinalResult } from './format-execute-result'
+import { getAgentNetworkSavedPseudocode } from './storage'
+import { requestAgentNetworkPlan } from './request-plan'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type Message = {
@@ -79,6 +82,7 @@ export function AgentNetworkChatPanel() {
   const appId = useAppStore(state => state.appDetail?.id)
   const { doSyncWorkflowDraft } = useNodesSyncDraft()
   const { nodesReadOnly } = useNodesReadOnly()
+  const hasSelectedNode = useReactFlowStore(state => state.getNodes().some(node => node.data.selected))
   const { applyPseudocode, exportPseudocode } = useAgentNetworkWorkflow()
   const [conversation, setConversation] = useState<AgentNetworkConversation | null>(null)
   const [input, setInput] = useState('')
@@ -88,8 +92,15 @@ export function AgentNetworkChatPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [applyingMessageId, setApplyingMessageId] = useState<string | null>(null)
   const [executingMessageId, setExecutingMessageId] = useState<string | null>(null)
+  const [chatForeground, setChatForeground] = useState(false)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const isOpen = pathname.endsWith('/agent-network')
+
+  useEffect(() => {
+    const onNodePanelPointerDown = () => setChatForeground(false)
+    window.addEventListener('workflow-node-panel-pointerdown', onNodePanelPointerDown)
+    return () => window.removeEventListener('workflow-node-panel-pointerdown', onNodePanelPointerDown)
+  }, [])
 
   const isBusy = isSubmitting || !!applyingMessageId || !!executingMessageId
 
@@ -112,18 +123,6 @@ export function AgentNetworkChatPanel() {
     }
   }, [appId])
 
-  useEffect(() => {
-    if (!isOpen || !appId)
-      return
-
-    void loadHistory()
-  }, [appId, isOpen, loadHistory])
-
-  useEffect(() => {
-    if (isOpen)
-      messageEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [isOpen, messages])
-
   const appliedMessageId = conversation?.applied_message_id
 
   const hasMessages = messages.length > 0
@@ -132,7 +131,7 @@ export function AgentNetworkChatPanel() {
     return !!input.trim() && !!appId && !!conversation && !nodesReadOnly && !isBusy
   }, [appId, conversation, input, isBusy, nodesReadOnly])
 
-  if (!isOpen)
+  if (!isOpen || hasSelectedNode)
     return null
 
   const close = () => {
@@ -330,8 +329,9 @@ export function AgentNetworkChatPanel() {
       || appliedMessageId !== message.id
       || nodesReadOnly
       || executingMessageId
-    )
+    ) {
       return
+    }
 
     setExecutingMessageId(message.id)
     try {
@@ -344,7 +344,7 @@ export function AgentNetworkChatPanel() {
       if (!draftSaved)
         throw new Error('DIFY_DRAFT_SAVE_FAILED')
 
-      const generated = exportPseudocode()
+      const generated = getAgentNetworkSavedPseudocode(appId) ? { source: getAgentNetworkSavedPseudocode(appId) } : { source: message.pseudocode ?? undefined }
       if (!generated.source)
         throw new Error(t('api.actionFailed'))
 
@@ -416,7 +416,8 @@ export function AgentNetworkChatPanel() {
 
   return (
     <aside
-      className="absolute inset-y-0 right-0 z-40 flex w-full max-w-[440px] flex-col border-l border-divider-regular bg-background-default shadow-xl"
+      className={cn('absolute inset-y-0 right-0 flex w-full max-w-[440px] flex-col border-l border-divider-regular bg-background-default shadow-xl', chatForeground ? 'z-60' : 'z-40')}
+      onPointerDown={() => setChatForeground(true)}
       aria-label={t('agentNetworkChat.title')}
     >
       <header className="flex shrink-0 items-center justify-between border-b border-divider-regular px-4 py-3">

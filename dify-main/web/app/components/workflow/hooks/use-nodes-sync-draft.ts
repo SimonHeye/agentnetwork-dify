@@ -20,10 +20,17 @@ export const useNodesSyncDraft = () => {
     if (getNodesReadOnly())
       return
 
-    if (sync)
-      doSyncWorkflowDraft(notRefreshWhenSyncError, callback)
-    else
+    if (sync) {
+      const onSuccess = callback?.onSuccess
+      void doSyncWorkflowDraft(notRefreshWhenSyncError, { ...callback, onSuccess: () => {
+        onSuccess?.()
+        if (typeof window !== 'undefined')
+          window.dispatchEvent(new CustomEvent('agent-network-workflow-saved'))
+      } })
+    }
+    else {
       debouncedSyncWorkflowDraft(doSyncWorkflowDraft)
+    }
   }, [debouncedSyncWorkflowDraft, doSyncWorkflowDraft, getNodesReadOnly])
 
   return {

@@ -19,6 +19,7 @@ import {
 import { executeAgentNetworkCode } from './execute-code'
 import { AgentNetworkExecutionResult } from './execution-result'
 import { formatAgentNetworkFinalResult } from './format-execute-result'
+import { getAgentNetworkSavedPseudocode, setAgentNetworkSavedPseudocode } from './storage'
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type AgentNetworkPseudocodeTriggerProps = {
@@ -37,7 +38,8 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
 
   const handleOpen = useCallback(() => {
     setExecutionResult(null)
-    setResult(exportPseudocode({ workflowName }))
+    const saved = appId ? getAgentNetworkSavedPseudocode(appId) : undefined
+    setResult(saved ? { source: saved, diagnostics: [] } : exportPseudocode({ workflowName }))
     setOpen(true)
   }, [exportPseudocode, workflowName])
 
@@ -64,6 +66,9 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
       if (!draftSaved)
         throw new Error('DIFY_DRAFT_SAVE_FAILED')
 
+      const latest = exportPseudocode({ workflowName }).source
+      if (appId && latest)
+        setAgentNetworkSavedPseudocode(appId, latest)
       toast.success(t('api.saved'))
     }
     catch {

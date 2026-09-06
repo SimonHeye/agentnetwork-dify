@@ -268,6 +268,26 @@ class AgentNetworkMessageApplyApi(Resource):
                 "message": str(error),
             }, 400
 
+@console_ns.route("/apps/<uuid:app_id>/agent-network/conversation/messages/<uuid:message_id>/pseudocode")
+class AgentNetworkMessagePseudocodeApi(Resource):
+    @setup_required
+    @login_required
+    @account_initialization_required
+    @edit_permission_required
+    @rbac_permission_required(RBACResourceScope.APP, RBACPermission.APP_EDIT)
+    @get_app_model(mode=[AppMode.ADVANCED_CHAT, AppMode.WORKFLOW])
+    def post(self, app_model: App, message_id):
+        payload = request.get_json(silent=True) or {}
+        pseudocode = payload.get("pseudocode")
+        if not isinstance(pseudocode, str) or not pseudocode.strip():
+            return {"code": "INVALID_PSEUDOCODE", "message": "pseudocode is required"}, 400
+        try:
+            message = AgentNetworkConversationService.update_message_pseudocode(
+                app_model, current_user, str(message_id), pseudocode,
+            )
+            return {"message": message.to_dict()}
+        except ValueError as error:
+            return {"code": "INVALID_AGENT_NETWORK_MESSAGE", "message": str(error)}, 400
 @console_ns.route("/apps/<uuid:app_id>/agent-network/conversation/messages/<uuid:message_id>/apply-failed")
 class AgentNetworkMessageApplyFailedApi(Resource):
     @setup_required

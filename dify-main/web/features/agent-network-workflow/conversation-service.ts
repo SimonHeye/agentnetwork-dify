@@ -151,6 +151,13 @@ export async function saveAgentNetworkExecutionResult(
   )
 }
 
+export async function updateAgentNetworkMessagePseudocode(appId: string, messageId: string, pseudocode: string) {
+  return post<{ message: AgentNetworkMessage }>(
+    `/apps/${appId}/agent-network/conversation/messages/${messageId}/pseudocode`,
+    { body: { pseudocode } },
+    { silent: true },
+  )
+}
 export async function clearAgentNetworkMessages(appId: string) {
   return post<AgentNetworkMessagesResponse>(
     `/apps/${appId}/agent-network/conversation/messages/clear`,
