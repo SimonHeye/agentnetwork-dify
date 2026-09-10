@@ -180,7 +180,16 @@ class AgentNetworkConversationService:
         message.updated_at = datetime.utcnow()
 
         conversation.applied_message_id = message.id
-        conversation.applied_task = task_message.content.strip()
+        intent_meta = message.meta if isinstance(message.meta, dict) else {}
+        intent_result = intent_meta.get("agent_network_intent")
+        normalized_task = (
+            intent_result.get("normalizedTask")
+            if isinstance(intent_result, dict)
+            else None
+        )
+        conversation.applied_task = str(
+            normalized_task or task_message.content
+        ).strip()
         conversation.updated_at = datetime.utcnow()
 
         db.session.commit()

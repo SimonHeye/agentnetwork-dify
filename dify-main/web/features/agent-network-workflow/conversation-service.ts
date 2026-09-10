@@ -1,3 +1,4 @@
+import type { AgentNetworkIntentResult } from './request-intent'
 import type { AgentNetworkExecuteResult } from './types'
 // eslint-disable-next-line no-restricted-imports
 import { get, post } from '@/service/base'
@@ -33,6 +34,7 @@ export type AgentNetworkMessage = {
   error_code?: string | null
   error_message?: string | null
   meta?: Record<string, unknown> & {
+    agent_network_intent?: AgentNetworkIntentResult
     agent_network_execution?: {
       final_result: unknown
       context: Record<string, unknown>

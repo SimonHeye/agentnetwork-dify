@@ -278,6 +278,7 @@ const COMMON_CONFIG_KEYS = new Set([
   'agent_network_call_kwarg_selectors',
   'agent_network_rendered_prompt',
   'agent_network_synthetic_expression',
+  'agent_network_bindings',
 ])
 
 class ReverseAbort extends Error {}
@@ -308,6 +309,7 @@ class GraphToPseudocodeCompiler {
       const body: string[] = []
       const entry = this.nodesById.get(this.entryId)!
       this.emitEntryDescription(entry, body)
+      this.emitEntryBindings(entry, body)
       const terminated = this.emitSequence(this.entryId, 0, new Set(), body, new Set())
       if (!terminated)
         this.fail('MISSING_OUTPUT', 'Workflow does not reach End, Answer, or KnowledgeBase output')
@@ -529,6 +531,25 @@ class GraphToPseudocodeCompiler {
       lines.push('# Entry: DataSource (knowledge pipeline)')
     }
     lines.push('')
+  }
+
+  private emitEntryBindings(node: Node, lines: string[]) {
+    if (node.data.type !== BlockEnum.Start)
+      return
+
+    const bindings = asArray(asRecord(node.data).agent_network_bindings)
+      .map(item => asRecord(item))
+      .filter(item => (
+        typeof item.target === 'string'
+        && isPythonIdentifier(item.target)
+        && typeof item.expression === 'string'
+        && item.expression.trim().length > 0
+      ))
+
+    for (const binding of bindings)
+      lines.push(`${binding.target} = ${binding.expression}`)
+    if (bindings.length)
+      lines.push('')
   }
 
   private emitSequence(

@@ -22,6 +22,28 @@ final_result = answer
 `
 
 describe('compileDifyGraphToAgentNetworkPseudocode', () => {
+  it('preserves leading plain assignments used by AgentNetwork Group arguments', () => {
+    const plan = `
+target_company = "苏州威迈芯材半导体有限公司"
+
+enterprise_data = EnterpriseInformationQueryGroup(
+    keyword=target_company,
+    ctype="All",
+    task=f"查询 {target_company} 的企业底档"
+)
+
+final_result = enterprise_data
+`
+    const graph = compileAgentNetworkPseudocode(plan, { model }).graph
+
+    const result = compileDifyGraphToAgentNetworkPseudocode(graph)
+
+    expect(result.source).toContain('target_company = "苏州威迈芯材半导体有限公司"')
+    expect(result.source).toContain('keyword=target_company,')
+    expect(result.source).toContain('task=f"查询 {target_company} 的企业底档",')
+    expect(() => compileAgentNetworkPseudocode(result.source!, { model })).not.toThrow()
+  })
+
   it('preserves AgentNetwork variable names without exporting Dify model configuration', () => {
     const plan = `
 kind = ReasoningGroup(task=task)

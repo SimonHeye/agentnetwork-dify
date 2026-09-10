@@ -5,7 +5,7 @@ type SyntaxNode = ReturnType<typeof parser.parse>['topNode']
 export type ParsedValue
   = | { expr: 'var', name: string, raw: string, refs: string[] }
     | { expr: 'const', value: string | number | boolean | null, valueType: 'str' | 'int' | 'float' | 'bool' | 'null', raw: string, refs: string[] }
-    | { expr: 'template', parts: Array<{ text: string } | { var: string } | { rawExpression: string }>, raw: string, refs: string[] }
+    | { expr: 'template', parts: Array<{ text: string } | { var: string } | { access: { variable: string, key: string } } | { rawExpression: string }>, raw: string, refs: string[] }
     | { expr: 'list', items: ParsedValue[], raw: string, refs: string[] }
     | { expr: 'dict', entries: Record<string, ParsedValue>, raw: string, refs: string[] }
     | { expr: 'access', variable: string, key: string, raw: string, refs: string[] }
@@ -307,6 +307,12 @@ class PythonSubsetParser {
         return this.parseFormatString(node)
       case 'ContinuedString':
         return this.parseContinuedString(node)
+      case 'ParenthesizedExpression': {
+        const inner = this.children(node).filter(child => !['(', ')'].includes(child.name))
+        if (inner.length === 1)
+          return this.parseValue(inner[0]!)
+        return { expr: 'raw', raw, refs: this.collectReferences(node) }
+      }
       case 'ArrayExpression': {
         const items = this.children(node)
           .filter(child => child.name !== '[' && child.name !== ']' && child.name !== ',')
@@ -315,6 +321,12 @@ class PythonSubsetParser {
       }
       case 'DictionaryExpression':
         return this.parseDictionary(node)
+      case 'MemberExpression': {
+        const access = this.parseSubscriptAccess(node)
+        return access
+          ? { expr: 'access', variable: access.variable, key: access.key, raw, refs: [access.variable] }
+          : { expr: 'raw', raw, refs: this.collectReferences(node) }
+      }
       case 'CallExpression':
         return this.parseAccess(node) ?? { expr: 'raw', raw, refs: this.collectReferences(node) }
       case 'UnaryExpression':
@@ -378,6 +390,22 @@ class PythonSubsetParser {
     return { expr: 'access', variable, key, raw: this.text(node), refs: [variable] }
   }
 
+  private parseSubscriptAccess(node: SyntaxNode): { variable: string, key: string } | null {
+    if (node.name !== 'MemberExpression')
+      return null
+    const children = this.children(node)
+    if (
+      children[0]?.name !== 'VariableName'
+      || children[1]?.name !== '['
+      || children[2]?.name !== 'String'
+      || children[3]?.name !== ']'
+    ) {
+      return null
+    }
+    const key = this.decodeString(children[2])
+    return key === null ? null : { variable: this.text(children[0]), key }
+  }
+
   private resultVariable(node: SyntaxNode | undefined): SyntaxNode | null {
     if (node?.name === 'VariableName')
       return node
@@ -437,7 +465,7 @@ class PythonSubsetParser {
         refs: [],
       }
     }
-    const parts: Array<{ text: string } | { var: string } | { rawExpression: string }> = []
+    const parts: Array<{ text: string } | { var: string } | { access: { variable: string, key: string } } | { rawExpression: string }> = []
     const refs = new Set<string>()
     for (const value of values) {
       if (value.expr === 'const') {
@@ -458,7 +486,7 @@ class PythonSubsetParser {
     const bounds = this.stringBounds(raw)
     if (!bounds)
       return { expr: 'raw', raw, refs: this.collectReferences(node) }
-    const parts: Array<{ text: string } | { var: string } | { rawExpression: string }> = []
+    const parts: Array<{ text: string } | { var: string } | { access: { variable: string, key: string } } | { rawExpression: string }> = []
     const refs = new Set<string>()
     let cursor = node.from + bounds.contentStart
     const replacements = this.children(node).filter(child => child.name === 'FormatReplacement')
@@ -475,8 +503,15 @@ class PythonSubsetParser {
         refs.add(name)
       }
       else {
-        parts.push({ rawExpression: this.text(expression) })
-        this.collectReferences(expression).forEach(reference => refs.add(reference))
+        const access = this.parseSubscriptAccess(expression)
+        if (access) {
+          parts.push({ access })
+          refs.add(access.variable)
+        }
+        else {
+          parts.push({ rawExpression: this.text(expression) })
+          this.collectReferences(expression).forEach(reference => refs.add(reference))
+        }
       }
       cursor = replacement.to
     }
@@ -658,8 +693,8 @@ class PythonSubsetParser {
     return [...references].sort()
   }
 
-  private mergeTextParts(parts: Array<{ text: string } | { var: string } | { rawExpression: string }>) {
-    const merged: Array<{ text: string } | { var: string } | { rawExpression: string }> = []
+  private mergeTextParts(parts: Array<{ text: string } | { var: string } | { access: { variable: string, key: string } } | { rawExpression: string }>) {
+    const merged: Array<{ text: string } | { var: string } | { access: { variable: string, key: string } } | { rawExpression: string }> = []
     for (const part of parts) {
       const previous = merged.at(-1)
       if ('text' in part && previous && 'text' in previous)

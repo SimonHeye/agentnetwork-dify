@@ -16,18 +16,9 @@ const agentNetworkResponseSchema = z.object({
   pseudocode: z.string().trim().min(1).max(1_000_000),
 }).passthrough()
 
-const DEFAULT_TIMEOUT_MS = 60_000
+const DEFAULT_TIMEOUT_MS = 3_600_000
 const MIN_TIMEOUT_MS = 1_000
-const MAX_TIMEOUT_MS = 120_000
-const DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS = [
-  'The pseudocode will be converted into a Dify workflow graph.',
-  'AgentNetwork node calls return scalarized PseudoResult strings. Compare assigned variables directly; never access .value, .raw, or .get() on a node result.',
-  'Do not use the json module. Use scalarized node results directly.',
-  'For iteration, use exactly: results = []; for index, item in enumerate(iterator): ...; results.append(one_node_result).',
-  'For a counted loop, use exactly: for index in range(POSITIVE_INTEGER): ... . Avoid while loops because their runtime semantics cannot be preserved by Dify.',
-  'Do not use import, def, class, lambda, file, network, or system operations.',
-  'Assign the final output to final_result.',
-].join('\n')
+const MAX_TIMEOUT_MS = 3_600_000
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request))
@@ -61,7 +52,9 @@ export async function POST(request: Request) {
         include_agents: input.data.includeAgents,
         ...(input.data.model ? { model: input.data.model } : {}),
         ...(input.data.existCode ? { exist_code: input.data.existCode } : {}),
-        extra_instructions: mergeCompatibilityInstructions(input.data.extraInstructions),
+        ...(input.data.extraInstructions
+          ? { extra_instructions: input.data.extraInstructions }
+          : {}),
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(resolveTimeout()),
@@ -96,14 +89,10 @@ async function readJson(request: Request | Response): Promise<unknown> {
   }
 }
 
-function mergeCompatibilityInstructions(extraInstructions?: string): string {
-  return extraInstructions
-    ? `${DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS}\n\nAdditional planning constraints:\n${extraInstructions}`
-    : DIFY_GRAPH_COMPATIBILITY_INSTRUCTIONS
-}
 function resolveHttpUrl(value: string | undefined): string | null {
   if (!value?.trim())
     return null
+
   try {
     const url = new URL(value)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null

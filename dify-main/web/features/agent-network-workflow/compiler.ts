@@ -632,7 +632,7 @@ class DifyGraphCompiler {
 
   compile(semantics: FlowSemantics): WorkflowDataUpdater {
     this.inferStructuredOutputs()
-    this.appendNode(this.buildStartNode(semantics.inputs))
+    this.appendNode(this.buildStartNode(semantics.inputs, this.entryBindings(semantics.body)))
     for (const step of this.steps.values()) {
       if (step.kind !== 'branch')
         continue
@@ -668,7 +668,59 @@ class DifyGraphCompiler {
   }
 
   private inferStructuredOutputs() {
+    const registerAccess = (access: { variable: string, key: string }, sourceOverrides?: Record<string, string[]>) => {
+      const resolveSources = (variable: string, overrides: Record<string, string[]> | undefined, resolving = new Set<string>()): string[] => {
+        if (resolving.has(variable))
+          return []
+        const binding = this.bindingsByTarget.get(variable)
+        if (binding?.value.expr === 'var')
+          return resolveSources(binding.value.name, binding.sources, new Set([...resolving, variable]))
+        return overrides?.[variable] ?? this.variables[variable] ?? []
+      }
+      const sources = resolveSources(access.variable, sourceOverrides)
+      for (const sourceId of sources) {
+        const sourceStep = this.steps.get(sourceId)
+        if (sourceStep?.kind !== 'call' || sourceStep.functionName === 'CodeExecution' || !sourceStep.functionName.endsWith('Group'))
+          continue
+        const fields = this.structuredFields.get(sourceId) ?? {}
+        fields[access.key] = fields[access.key] ?? 'string'
+        this.structuredFields.set(sourceId, fields)
+      }
+    }
+
+    const collectAccesses = (value: ParsedValue, accesses: Array<{ variable: string, key: string }>) => {
+      if (value.expr === 'access') {
+        accesses.push({ variable: value.variable, key: value.key })
+        return
+      }
+      if (value.expr === 'template') {
+        for (const part of value.parts) {
+          if ('access' in part)
+            accesses.push(part.access)
+        }
+        return
+      }
+      if (value.expr === 'list') {
+        value.items.forEach(item => collectAccesses(item, accesses))
+        return
+      }
+      if (value.expr === 'dict') {
+        Object.values(value.entries).forEach(item => collectAccesses(item, accesses))
+      }
+    }
+
     for (const step of this.steps.values()) {
+      if (step.kind === 'call') {
+        const accesses: Array<{ variable: string, key: string }> = []
+        step.args.forEach(value => collectAccesses(value, accesses))
+        Object.values(step.kwargs).forEach(value => collectAccesses(value, accesses))
+        accesses.forEach(access => registerAccess(access, step.sources))
+      }
+      else if (step.kind === 'iteration') {
+        const accesses: Array<{ variable: string, key: string }> = []
+        collectAccesses(step.output, accesses)
+        accesses.forEach(access => registerAccess(access, step.outputSources))
+      }
       if (step.kind !== 'branch')
         continue
       for (const branchCase of step.cases) {
@@ -693,9 +745,37 @@ class DifyGraphCompiler {
         }
       }
     }
+
+    for (const binding of this.bindings.values()) {
+      const accesses: Array<{ variable: string, key: string }> = []
+      collectAccesses(binding.value, accesses)
+      accesses.forEach(access => registerAccess(access, binding.sources))
+    }
+    for (const terminal of this.terminals.values()) {
+      if (!terminal.output)
+        continue
+      const accesses: Array<{ variable: string, key: string }> = []
+      collectAccesses(terminal.output, accesses)
+      accesses.forEach(access => registerAccess(access, terminal.sources))
+    }
   }
 
-  private buildStartNode(inputs: FlowSemantics['inputs']): Node {
+  private entryBindings(body: string[]): Binding[] {
+    const bindings: Binding[] = []
+
+    for (const objectId of body) {
+      const binding = this.bindings.get(objectId)
+
+      if (!binding)
+        break
+
+      bindings.push(binding)
+    }
+
+    return bindings
+  }
+
+  private buildStartNode(inputs: FlowSemantics['inputs'], bindings: Binding[]): Node {
     const variables = inputs.map(input => ({
       variable: input.name,
       label: input.name,
@@ -709,6 +789,11 @@ class DifyGraphCompiler {
       desc: '',
       selected: false,
       variables,
+      agent_network_bindings: bindings.map(binding => ({
+        target: binding.target,
+        expression: binding.value.raw,
+        line: binding.line,
+      })),
     })
   }
 
@@ -756,7 +841,13 @@ class DifyGraphCompiler {
       agent_network_group: step.functionName,
       agent_network_variable: step.assignTo ?? undefined,
       agent_network_call_kwargs: Object.fromEntries(
-        Object.entries(step.kwargs).map(([name, value]) => [name, value.raw]),
+        Object.entries(step.kwargs).map(([name, value]) => {
+          const binding = value.expr === 'var'
+            ? this.bindingsByTarget.get(value.name)
+            : undefined
+
+          return [name, binding?.value.raw ?? value.raw]
+        }),
       ),
       agent_network_call_kwarg_selectors: this.callKwargSelectors(step),
       agent_network_rendered_prompt: this.renderCallPrompt(step),
@@ -1238,12 +1329,15 @@ class DifyGraphCompiler {
   ): string {
     if (value.expr === 'access')
       return selectorTemplate(this.valueOutput(value, sourceOverrides)[0])
-    if (value.expr === 'list' || value.expr === 'dict')
+    if (value.expr === 'list')
+      return value.items.map(item => this.renderValue(item, resolving, sourceOverrides)).join(', ')
+    if (value.expr === 'dict')
       return JSON.stringify(this.literalValue(value, null))
     if (value.expr === 'var') {
       const sources = sourceOverrides?.[value.name] ?? this.variables[value.name] ?? []
       const binding = this.bindingsByTarget.get(value.name)
-      if (!sources.length && !(value.name in this.inputTypes) && binding) {
+      const inlineCompositeBinding = binding?.value.expr === 'template' || binding?.value.expr === 'list'
+      if ((!sources.length || inlineCompositeBinding) && !(value.name in this.inputTypes) && binding) {
         if (resolving.has(value.name))
           throw new AgentNetworkCompileError(`Variable binding cycle includes ${value.name}`)
         return this.renderValue(binding.value, new Set([...resolving, value.name]), binding.sources)
@@ -1260,6 +1354,13 @@ class DifyGraphCompiler {
       if ('var' in part) {
         return this.renderValue(
           { expr: 'var', name: part.var, raw: part.var, refs: [part.var] },
+          resolving,
+          sourceOverrides,
+        )
+      }
+      if ('access' in part) {
+        return this.renderValue(
+          { expr: 'access', variable: part.access.variable, key: part.access.key, raw: `${part.access.variable}['${part.access.key}']`, refs: [part.access.variable] },
           resolving,
           sourceOverrides,
         )

@@ -39,7 +39,9 @@ export function AgentNetworkPseudocodeTrigger({ appId, workflowName }: AgentNetw
   const handleOpen = useCallback(() => {
     setExecutionResult(null)
     const saved = appId ? getAgentNetworkSavedPseudocode(appId) : undefined
-    setResult(saved ? { source: saved, diagnostics: [] } : exportPseudocode({ workflowName }))
+    setResult(saved
+      ? { source: saved, fileName: `${workflowName ?? 'agent-network'}.py`, diagnostics: [], stats: { nodes: 0, edges: 0, agents: 0, branches: 0, skills: 0 } }
+      : exportPseudocode({ workflowName }))
     setOpen(true)
   }, [exportPseudocode, workflowName])
 

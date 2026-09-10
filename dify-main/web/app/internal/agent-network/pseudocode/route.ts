@@ -29,9 +29,9 @@ const agentNetworkResponseSchema = z.object({
   calls: z.number().int().nonnegative(),
 }).passthrough()
 
-const DEFAULT_TIMEOUT_MS = 600_000
+const DEFAULT_TIMEOUT_MS = 3_600_000
 const MIN_TIMEOUT_MS = 1_000
-const MAX_TIMEOUT_MS = 600_000
+const MAX_TIMEOUT_MS = 3_600_000
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request))

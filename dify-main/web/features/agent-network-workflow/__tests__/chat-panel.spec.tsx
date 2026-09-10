@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AgentNetworkChatPanel } from '../chat-panel'
+import { requestAgentNetworkIntent } from '../request-intent'
 import { requestAgentNetworkPlan } from '../request-plan'
 
 const mockApplyPseudocode = vi.hoisted(() => vi.fn())
@@ -42,6 +43,7 @@ vi.mock('../use-agent-network-workflow', () => ({
   }),
 }))
 
+vi.mock('../request-intent', () => ({ requestAgentNetworkIntent: vi.fn() }))
 vi.mock('../request-plan', () => ({ requestAgentNetworkPlan: vi.fn() }))
 
 vi.mock('../conversation-service', () => ({
@@ -51,6 +53,11 @@ vi.mock('../conversation-service', () => ({
   markAgentNetworkMessageApplyFailed: mockMarkApplyFailed,
   clearAgentNetworkMessages: vi.fn(),
 }))
+
+const intentResult = {
+  normalizedTask: 'Normalized investment due diligence task',
+  extraInstructions: 'Normalized investment planning constraints',
+}
 
 const conversation = {
   id: 'conversation-1',
@@ -93,10 +100,12 @@ describe('AgentNetworkChatPanel', () => {
           pseudocode: payload.pseudocode,
           parent_message_id: payload.parent_message_id,
           apply_status: 'not_applied',
+          meta: payload.meta,
         })
       }
       return persistedMessage({ id: 'error-1', role: 'error', status: 'failed', content: payload.content })
     })
+    vi.mocked(requestAgentNetworkIntent).mockResolvedValue(intentResult)
     vi.mocked(requestAgentNetworkPlan).mockResolvedValue({ pseudocode: 'final_result = task' })
     mockApplyPseudocode.mockResolvedValue({
       graph: { nodes: [{ id: 'start' }, { id: 'end' }], edges: [{ id: 'edge' }] },
@@ -112,6 +121,7 @@ describe('AgentNetworkChatPanel', () => {
         parent_message_id: 'user-1',
         apply_status: 'applied',
         nodes_count: 2,
+        meta: { agent_network_intent: intentResult },
         edges_count: 1,
       }),
     })
@@ -127,12 +137,16 @@ describe('AgentNetworkChatPanel', () => {
     await waitFor(() => expect(requestAgentNetworkPlan).toHaveBeenCalledWith({
       appId: 'app-1',
       id: 'conversation-1',
-      task: 'Build a calculator workflow',
+      task: intentResult.normalizedTask,
+      extraInstructions: intentResult.extraInstructions,
     }))
+    expect(screen.getByText('意图识别完成')).toBeInTheDocument()
+    expect(screen.getByText(intentResult.normalizedTask)).toBeInTheDocument()
     expect(mockCreateMessage).toHaveBeenCalledWith('app-1', expect.objectContaining({
       role: 'assistant',
       parent_message_id: 'user-1',
       pseudocode: 'final_result = task',
+      meta: { agent_network_intent: intentResult },
     }))
 
     await waitFor(() => expect(mockApplyPseudocode).toHaveBeenCalledWith('final_result = task', {
@@ -174,7 +188,8 @@ describe('AgentNetworkChatPanel', () => {
     await waitFor(() => expect(requestAgentNetworkPlan).toHaveBeenCalledWith({
       appId: 'app-1',
       id: 'conversation-1',
-      task: 'Add a search step',
+      task: intentResult.normalizedTask,
+      extraInstructions: intentResult.extraInstructions,
       existCode: 'final_result = previous_result',
     }))
     expect(screen.getByText('Build a calculator workflow')).toBeInTheDocument()
@@ -183,6 +198,12 @@ describe('AgentNetworkChatPanel', () => {
       preservePositions: false,
       saveDraft: true,
     }))
+  })
+
+  it('keeps the chat panel in the foreground while the conversation route is active', () => {
+    render(<AgentNetworkChatPanel />)
+
+    expect(screen.getByLabelText('agentNetworkChat.title')).toHaveClass('z-60')
   })
 
   it('returns to the normal workflow page when closed', async () => {

@@ -568,6 +568,76 @@ final_result = answer
       ]))
     })
 
+    it('should compile the investment smoke-test plan with list references and file access', () => {
+      const result = compileAgentNetworkPseudocode(`
+enterprise_data = EnterpriseInformationQueryGroup(
+    keyword="苏州威迈芯材半导体有限公司",
+    ctype="All",
+    task="查询目标企业全量工商与风险信息底档，覆盖工商登记、股权关联、经营融资、知识产权、司法风险、行政处罚及合规信息。"
+)
+
+search_result = SearchGroup(
+    task="针对苏州威迈芯材半导体有限公司进行多源联网搜索，补充最新新闻、融资历史、核心技术产品、竞争对手、市场地位、半导体材料行业趋势及公开投资观点。"
+)
+
+reasoning_result = ReasoningGroup(
+    task="综合企业底档和外部情报，面向科技企业投资尽调进行证据化推理；选择最匹配的候选 Skill；识别信息缺口并形成可供后续总结报告使用的 reasoning_result。",
+    source_materials=[enterprise_data, search_result],
+    analysis_requirements="区分证据与推断，覆盖企业基本面、技术产品、市场竞争力、财务融资、司法与经营风险，并明确指出信息缺口。",
+    skills=["tech-bp-analyst"]
+)
+
+investment_report = SummarizerGroup(
+    task="总结 reasoning_result，形成全面投资分析报告，包含公司基本情况、技术产品、市场竞争、财务融资、法律与经营风险、投资结论（值得投资/谨慎观察/不建议投资）及详细理由。",
+    source_materials=reasoning_result,
+    format_requirements="输出结构清晰、可直接用于撰写正式中文报告和演示文稿的 Markdown 内容。"
+)
+
+ppt_file = PPTXGenAgentGroup(
+    task="根据投资报告制作中文投资决策演示文稿，重点展示投资结论、核心依据、竞争格局和风险提示。",
+    topic="苏州威迈芯材半导体有限公司投资决策演示文稿",
+    content=investment_report,
+    language="中文"
+)
+
+word_file = WordGenerationAgentGroup(
+    task="根据完整投资报告生成正式、专业、结构清晰的中文 Word 投资分析报告。",
+    topic="苏州威迈芯材半导体有限公司投资分析报告",
+    content=investment_report
+)
+
+email_send_result = EmailSendingGroup(
+    send_to="1078825799@qq.com",
+    subject="苏州威迈芯材半导体有限公司投资尽调报告与演示文稿",
+    content=f"PPTX：{ppt_file['file_url']}\\nWord：{word_file['word_url']}",
+    skills=["rpa-email"]
+)
+
+final_result = email_send_result
+`, { model })
+      const nodes = nodesById(result)
+      const groups = result.graph.nodes.flatMap((node) => {
+        const group = (node.data as Record<string, unknown>).agent_network_group
+        return typeof group === 'string' ? [group] : []
+      })
+
+      expect(new Set(groups)).toEqual(new Set([
+        'EnterpriseInformationQueryGroup',
+        'SearchGroup',
+        'ReasoningGroup',
+        'SummarizerGroup',
+        'PPTXGenAgentGroup',
+        'WordGenerationAgentGroup',
+        'EmailSendingGroup',
+      ]))
+      expect(nodes.reasoninggroup?.data.prompt_template[0]?.text).toContain('source_materials: {{#enterpriseinformationquerygroup.text#}}, {{#searchgroup.text#}}')
+      expect(nodes.pptxgenagentgroup?.data.structured_output?.schema.properties).toEqual({ file_url: { type: 'string' } })
+      expect(nodes.wordgenerationagentgroup?.data.structured_output?.schema.properties).toEqual({ word_url: { type: 'string' } })
+      expect(nodes.emailsendinggroup?.data.prompt_template[0]?.text).toContain('{{#pptxgenagentgroup.structured_output.file_url#}}')
+      expect(nodes.emailsendinggroup?.data.prompt_template[0]?.text).toContain('{{#wordgenerationagentgroup.structured_output.word_url#}}')
+      expect(nodes.terminal_1?.data.outputs[0]?.value_selector).toEqual(['emailsendinggroup', 'text'])
+    })
+
     it('should resolve input aliases and local constants in prompts', () => {
       const result = compileAgentNetworkPseudocode(`
 task_alias = task

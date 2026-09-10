@@ -62,11 +62,8 @@ describe('POST /internal/agent-network/plan', () => {
       include_agents: true,
       model: 'deepseek-chat',
       exist_code: 'final_result = previous_result',
+      extra_instructions: 'Only use SearchGroup',
     })
-    expect(payload.extra_instructions).toContain('converted into a Dify workflow graph')
-    expect(payload.extra_instructions).toContain('enumerate(iterator)')
-    expect(payload.extra_instructions).toContain('Do not use the json module')
-    expect(payload.extra_instructions).toContain('Only use SearchGroup')
   })
 
   it('should send the documented include_agents default without inventing fields', async () => {
@@ -77,11 +74,10 @@ describe('POST /internal/agent-network/plan', () => {
     await POST(createRequest({ appId: 'app-1', id: 'conversation-1', task: 'task' }))
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
-    expect(requestBody).toMatchObject({ task: 'task', id: 'conversation-1', include_agents: false })
+    expect(requestBody).toMatchObject({ id: 'conversation-1', include_agents: false })
+    expect(requestBody.task).toBe('task')
     expect(requestBody).not.toHaveProperty('exist_code')
-    expect(requestBody.extra_instructions).toContain('never access .value, .raw, or .get()')
-    expect(requestBody.extra_instructions).toContain('range(POSITIVE_INTEGER)')
-    expect(requestBody.extra_instructions).toContain('Assign the final output to final_result')
+    expect(requestBody).not.toHaveProperty('extra_instructions')
   })
 
   it('should reject cross-origin browser requests', async () => {

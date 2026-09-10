@@ -1,6 +1,7 @@
 'use client'
 
 import type { AgentNetworkConversation, AgentNetworkMessage } from './conversation-service'
+import type { AgentNetworkIntentResult } from './request-intent'
 import type { AgentNetworkExecuteResult } from './types'
 import { Button } from '@langgenius/dify-ui/button'
 import { cn } from '@langgenius/dify-ui/cn'
@@ -8,7 +9,6 @@ import { Textarea } from '@langgenius/dify-ui/textarea'
 import { toast } from '@langgenius/dify-ui/toast'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useStore as useReactFlowStore } from 'reactflow'
 import { useStore as useAppStore } from '@/app/components/app/store'
 import { useNodesSyncDraft } from '@/app/components/workflow/hooks/use-nodes-sync-draft'
 import { useNodesReadOnly } from '@/app/components/workflow/hooks/use-workflow'
@@ -21,13 +21,14 @@ import {
   markAgentNetworkMessageApplied,
   markAgentNetworkMessageApplyFailed,
   saveAgentNetworkExecutionResult,
-  updateAgentNetworkMessagePseudocode,
 } from './conversation-service'
 import { executeAgentNetworkCode } from './execute-code'
 import { AgentNetworkExecutionResult } from './execution-result'
 import { formatAgentNetworkFinalResult } from './format-execute-result'
-import { getAgentNetworkSavedPseudocode } from './storage'
+import { AgentNetworkIntentResultCard } from './intent-result'
+import { requestAgentNetworkIntent } from './request-intent'
 import { requestAgentNetworkPlan } from './request-plan'
+
 import { useAgentNetworkWorkflow } from './use-agent-network-workflow'
 
 type Message = {
@@ -44,6 +45,8 @@ type Message = {
   error_code?: string | null
   error_message?: string | null
   executionResult?: AgentNetworkExecuteResult
+  intentResult?: AgentNetworkIntentResult
+  intentPending?: boolean
   created_at?: number
   updated_at?: number
 }
@@ -62,6 +65,7 @@ function fromPersistedMessage(message: AgentNetworkMessage): Message {
     draft_hash_after: message.draft_hash_after,
     error_code: message.error_code,
     error_message: message.error_message,
+    intentResult: message.meta?.agent_network_intent,
     executionResult: message.meta?.agent_network_execution
       ? {
           finalResult: message.meta.agent_network_execution.final_result,
@@ -82,7 +86,6 @@ export function AgentNetworkChatPanel() {
   const appId = useAppStore(state => state.appDetail?.id)
   const { doSyncWorkflowDraft } = useNodesSyncDraft()
   const { nodesReadOnly } = useNodesReadOnly()
-  const hasSelectedNode = useReactFlowStore(state => state.getNodes().some(node => node.data.selected))
   const { applyPseudocode, exportPseudocode } = useAgentNetworkWorkflow()
   const [conversation, setConversation] = useState<AgentNetworkConversation | null>(null)
   const [input, setInput] = useState('')
@@ -92,15 +95,8 @@ export function AgentNetworkChatPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [applyingMessageId, setApplyingMessageId] = useState<string | null>(null)
   const [executingMessageId, setExecutingMessageId] = useState<string | null>(null)
-  const [chatForeground, setChatForeground] = useState(false)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const isOpen = pathname.endsWith('/agent-network')
-
-  useEffect(() => {
-    const onNodePanelPointerDown = () => setChatForeground(false)
-    window.addEventListener('workflow-node-panel-pointerdown', onNodePanelPointerDown)
-    return () => window.removeEventListener('workflow-node-panel-pointerdown', onNodePanelPointerDown)
-  }, [])
 
   const isBusy = isSubmitting || !!applyingMessageId || !!executingMessageId
 
@@ -123,6 +119,13 @@ export function AgentNetworkChatPanel() {
     }
   }, [appId])
 
+  useEffect(() => {
+    if (!isOpen || !appId)
+      return
+
+    void loadHistory()
+  }, [appId, isOpen, loadHistory])
+
   const appliedMessageId = conversation?.applied_message_id
 
   const hasMessages = messages.length > 0
@@ -131,7 +134,7 @@ export function AgentNetworkChatPanel() {
     return !!input.trim() && !!appId && !!conversation && !nodesReadOnly && !isBusy
   }, [appId, conversation, input, isBusy, nodesReadOnly])
 
-  if (!isOpen || hasSelectedNode)
+  if (!isOpen)
     return null
 
   const close = () => {
@@ -167,8 +170,9 @@ export function AgentNetworkChatPanel() {
     appendMessage({
       id: assistantMessageId,
       role: 'assistant',
-      content: t('agentNetworkChat.planning'),
+      content: '',
       state: 'pending',
+      intentPending: true,
     })
 
     try {
@@ -180,13 +184,23 @@ export function AgentNetworkChatPanel() {
       savedUserMessageId = savedUserMessage.id
       replaceMessage(userMessageId, fromPersistedMessage(savedUserMessage))
 
-      const previousPseudocode = messages.findLast(message => (
+      const intentResult = await requestAgentNetworkIntent({ task })
+      replaceMessage(assistantMessageId, {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: t('agentNetworkChat.planning'),
+        state: 'pending',
+        intentResult,
+      })
+
+      const previousPseudocode = [...messages].reverse().find((message: Message) => (
         message.role === 'assistant' && !!message.pseudocode
       ))?.pseudocode
       const plan = await requestAgentNetworkPlan({
         appId,
         id: conversation.id,
-        task,
+        task: intentResult.normalizedTask,
+        extraInstructions: intentResult.extraInstructions,
         ...(previousPseudocode ? { existCode: previousPseudocode } : {}),
       })
       const savedAssistantMessage = await createAgentNetworkMessage(appId, {
@@ -196,6 +210,7 @@ export function AgentNetworkChatPanel() {
         content: t('agentNetworkChat.planReady'),
         pseudocode: plan.pseudocode,
         parent_message_id: savedUserMessage.id,
+        meta: { agent_network_intent: intentResult },
       })
 
       const plannedMessage = fromPersistedMessage(savedAssistantMessage)
@@ -344,7 +359,7 @@ export function AgentNetworkChatPanel() {
       if (!draftSaved)
         throw new Error('DIFY_DRAFT_SAVE_FAILED')
 
-      const generated = getAgentNetworkSavedPseudocode(appId) ? { source: getAgentNetworkSavedPseudocode(appId) } : { source: message.pseudocode ?? undefined }
+      const generated = exportPseudocode({ workflowName: 'agent-network' })
       if (!generated.source)
         throw new Error(t('api.actionFailed'))
 
@@ -416,8 +431,8 @@ export function AgentNetworkChatPanel() {
 
   return (
     <aside
-      className={cn('absolute inset-y-0 right-0 flex w-full max-w-[440px] flex-col border-l border-divider-regular bg-background-default shadow-xl', chatForeground ? 'z-60' : 'z-40')}
-      onPointerDown={() => setChatForeground(true)}
+      className="absolute inset-y-0 right-0 z-60 flex w-full max-w-[440px] flex-col border-l border-divider-regular bg-background-default shadow-xl"
+
       aria-label={t('agentNetworkChat.title')}
     >
       <header className="flex shrink-0 items-center justify-between border-b border-divider-regular px-4 py-3">
@@ -506,17 +521,27 @@ export function AgentNetworkChatPanel() {
                       : <span className="i-ri-robot-2-line size-4" aria-hidden="true" />}
                   </div>
 
-                  <div className={cn('max-w-[85%] min-w-0', isUser && 'text-right')}>
-                    <div className={cn(
-                      'inline-block rounded-xl px-3 py-2 text-left system-sm-regular wrap-break-word whitespace-pre-wrap',
-                      isUser
-                        ? 'bg-components-button-primary-bg text-components-button-primary-text'
-                        : 'bg-background-section-burn text-text-secondary',
-                      (message.state === 'error' || isError) && 'text-text-destructive',
+                  <div className={cn('max-w-[85%] min-w-0', (message.intentPending || message.intentResult) && 'max-w-full flex-1', isUser && 'text-right')}>
+                    {(message.intentPending || message.intentResult) && (
+                      <AgentNetworkIntentResultCard
+                        pending={message.intentPending}
+                        result={message.intentResult}
+                      />
                     )}
-                    >
-                      {getDisplayContent(message)}
-                    </div>
+
+                    {message.content && (
+                      <div className={cn(
+                        'inline-block rounded-xl px-3 py-2 text-left system-sm-regular wrap-break-word whitespace-pre-wrap',
+                        (message.intentPending || message.intentResult) && 'mt-2',
+                        isUser
+                          ? 'bg-components-button-primary-bg text-components-button-primary-text'
+                          : 'bg-background-section-burn text-text-secondary',
+                        (message.state === 'error' || isError) && 'text-text-destructive',
+                      )}
+                      >
+                        {getDisplayContent(message)}
+                      </div>
+                    )}
 
                     {message.executionResult && (
                       <AgentNetworkExecutionResult result={message.executionResult.finalResult} />

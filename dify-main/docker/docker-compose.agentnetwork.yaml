@@ -1,6 +1,10 @@
 services:
   api:
     image: agentnetwork-dify-api:chat-history
+    env_file:
+      - ./.env
+    volumes:
+      - ./volumes/app/storage:/app/api/storage
     ports:
       - "5001:5001"
   web:
@@ -13,6 +17,9 @@ services:
       APP_API_URL: http://localhost:5001
       AGENT_NETWORK_PLAN_URL: http://host.docker.internal:18080/service/plan_code
       AGENT_NETWORK_PLAN_API_KEY: ${AGENT_NETWORK_PLAN_API_KEY:-}
+      AGENT_NETWORK_PLAN_TIMEOUT_MS: ${AGENT_NETWORK_PLAN_TIMEOUT_MS:-3600000}
       AGENT_NETWORK_EXECUTE_URL: http://host.docker.internal:18080/service/execute_code
       AGENT_NETWORK_EXECUTE_API_KEY: ${AGENT_NETWORK_PSEUDOCODE_API_KEY:-}
-      AGENT_NETWORK_EXECUTE_TIMEOUT_MS: ${AGENT_NETWORK_EXECUTE_TIMEOUT_MS:-600000}
+      AGENT_NETWORK_EXECUTE_TIMEOUT_MS: ${AGENT_NETWORK_EXECUTE_TIMEOUT_MS:-3600000}
+
+
