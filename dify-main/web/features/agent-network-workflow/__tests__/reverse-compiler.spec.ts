@@ -166,6 +166,37 @@ final_result = email_result
     expect(result.source).toContain('answer=answer,')
   })
 
+  it('uses edited Group kwargs from the USER prompt instead of stale preserved values', () => {
+    const graph = compileAgentNetworkPseudocode(`
+email_result = EmailSendingGroup(
+    task="send_to: 1078825799@qq.com\\nsubject: Original subject\\ncontent: Original content",
+    send_to="1078825799@qq.com",
+    subject="Original subject",
+    content="Original content",
+)
+final_result = email_result
+`, { model }).graph
+    graph.nodes = graph.nodes.map(node => node.id === 'emailsendinggroup'
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            prompt_template: [{
+              role: 'user',
+              text: 'send_to: 1138559033@qq.com\nsubject: Updated subject\ncontent: Updated content',
+            }],
+          },
+        }
+      : node)
+
+    const result = compileDifyGraphToAgentNetworkPseudocode(graph)
+
+    expect(result.source).toContain('send_to="1138559033@qq.com"')
+    expect(result.source).toContain('subject="Updated subject"')
+    expect(result.source).toContain('content="Updated content"')
+    expect(result.source).not.toContain('send_to="1078825799@qq.com"')
+  })
+
   it('renames duplicate preserved variables that are not part of the same branch join', () => {
     const graph = compileAgentNetworkPseudocode(`
 first = SearchGroup(task=task)

@@ -781,6 +781,9 @@ class GraphToPseudocodeCompiler {
       && typeof originalPrompt === 'string'
       && originalPrompt === currentPromptText
       && Object.keys(preservedKwargs).length > 0
+    const editedPromptKwargs = !canRestoreKwargs && isGroup && currentPromptText
+      ? this.parseEditedPromptKwargs(currentPromptText, Object.keys(preservedKwargs))
+      : new Map<string, string>()
     const args: [string, string][] = canRestoreKwargs
       ? Object.entries(preservedKwargs).flatMap(([name, raw]) => (
           isPythonIdentifier(name) && typeof raw === 'string' ? [[name, raw]] : []
@@ -790,6 +793,9 @@ class GraphToPseudocodeCompiler {
           ...Object.entries(preservedKwargs).flatMap(([name, raw]) => {
             if (name === 'task' || !isPythonIdentifier(name) || typeof raw !== 'string')
               return []
+            const editedValue = editedPromptKwargs.get(name)
+            if (editedValue !== undefined)
+              return [[name, this.renderTemplateText(editedValue, node.id, node)] as [string, string]]
             const selector = stringArray(preservedSelectors[name])
             const expression = selector.length ? this.selectorExpression(selector, node.id) : raw
             return [[name, expression] as [string, string]]
@@ -829,6 +835,23 @@ class GraphToPseudocodeCompiler {
     }
 
     this.emitAssignedCall(variable, callable, args, indent, lines)
+  }
+
+  private parseEditedPromptKwargs(prompt: string, names: string[]): Map<string, string> {
+    const knownNames = new Set(names)
+    const entries = [...prompt.matchAll(/^([A-Za-z_]\w*):[ \t]?(.*)$/gm)]
+      .filter(match => knownNames.has(match[1]!))
+    const parsed = new Map<string, string>()
+
+    entries.forEach((entry, index) => {
+      const name = entry[1]!
+      const start = entry.index! + entry[0].length
+      const end = entries[index + 1]?.index ?? prompt.length
+      const continuation = prompt.slice(start, end)
+      parsed.set(name, `${entry[2]!}${continuation}`.replace(/\n+$/, ''))
+    })
+
+    return parsed
   }
 
   private valueNodeArguments(node: Node): [string, string][] {
